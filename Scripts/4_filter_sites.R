@@ -1,12 +1,11 @@
 # ---
 # title: "NTEMS_data_extraction"
 # author: "Leonard Patterson"
-# created: ""
-# description: "."
+# created: "2025-04-11"
+# description: "This script filters point count data using disturbance shapefiles
+# from ABMI"
 # ---
 
-
-rm(list = ls())  # Removes all objects from the environment
 
 
 # Load libraries
@@ -96,87 +95,22 @@ st_write(points_to_keep_2009, "Output/Spatial Data/AB_point_counts/filtered_poin
 
 
 
+############## Filter out sites outside of the study area
 
+study_area <- st_read("Input/Spatial Data/Study Area/study_area.shp")
 
+# Assuming 'joined_data' is a data frame with x_AEP10TM and y_AEP10TM columns
+# Convert 'joined_data' to an sf object (spatial data frame)
+joined_sf <- st_as_sf(joined_data, coords = c("x_AEP10TM", "y_AEP10TM"), crs = st_crs(study_area))
 
+# Perform the spatial intersection
+intersecting_points <- st_intersection(joined_sf, study_area)
 
+# If you only need the original data frame columns:
+joined_data <- intersecting_points %>% st_drop_geometry()
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-### Filter out sites before 1990
-
-# Filter out wildfire and harvest area where YEAR > 1990
-harvestareas_1990 <- harvestareas %>% filter(YEAR >= 1990)
-wildfire_1990 <- wildfire %>% filter(YEAR >= 1990)
-
-# Create a unique ID column (Important!)
-AB_point_counts_sf <- AB_point_counts_sf %>%
-  mutate(AB_point_counts_sf_ID = 1:n())
-
-# Apply buffer (AFTER creating the ID)
-AB_point_counts_buff <- st_buffer(AB_point_counts_sf, dist = 50)
-
-# Create points to keep (Correctly initialized)
-points_to_keep_1990 <- AB_point_counts_buff # Use AB_point_counts_buff directly
-
-# List of layers to filter against
-layers <- list(pipelines, wellsabnd, roads, cultivation, wellsactive, residential, industrial)
-
-# Iterate and filter (optimized without st_prepare)
-for (layer in layers) {
-  intersected_points <- st_join(points_to_keep_1990, layer, join = st_intersects, left = FALSE)
-  
-  # Get the IDs of the intersecting points
-  intersecting_ids <- intersected_points %>%
-    st_drop_geometry() %>%
-    distinct(AB_point_counts_sf_ID) %>%
-    pull(AB_point_counts_sf_ID)
-  
-  # Filter points_to_keep by ID (Correctly using points_to_keep)
-  points_to_keep_1990 <- points_to_keep_1990 %>%
-    filter(!(AB_point_counts_sf_ID %in% intersecting_ids))
-  
-  gc()
-}
-
-st_write(points_to_keep_1990, "Output/Spatial Data/AB_point_counts/filtered_point_count_locs_1990.shp")
-
-
-
-
-
-
-
-
-
-
-
-
+#Alternatively, if you want to keep the geometry in a spatial dataframe:
+# intersecting_data <- intersecting_points
 
 
 

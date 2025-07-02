@@ -1,7 +1,7 @@
 # ---
 # title: "Clean bird data"
-# author: "Brendan Casey"
-# created: "2024-01-13"
+# author: "Brendan Casey and Leonard Patterson"
+# created: "2025-04-11"
 # description: "Code to clean data brought in from wildtrax. 
 # Adapted some of the script contained in https://github.com/
 # borealbirds/QPADestimation/blob/main/script/02.CleanData.R"

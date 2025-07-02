@@ -1,10 +1,15 @@
 # ---
 # title: "NTEMS_data_extraction"
 # author: "Leonard Patterson"
-# created: ""
-# description: "."
+# created: "2025-04-11"
+# description: "This script extracts habitat covariates from the NTEMS rasters, 
+# which were downloaded from these websites:
+# Tree species raster: https://gee-community-catalog.org/projects/ca_lc/#class-schema"
+# Forest age: https://developers.google.com/earth-engine/datasets/catalog/CANADA_NFIS_NTEMS_CA_FOREST_AGE
 # ---
 
+# Remove objects from environment
+rm(list = ls())
 
 # Load libraries
 
@@ -19,29 +24,24 @@ library(raster)
 ### Reproject rasters
 
 ## Import rasters
-#Broadleaf150 <- rast("Input/Spatial Data/NTEMS Tree Rasters/Broadleaf.H150.tif")
-#Conifer150 <- rast("Input/Spatial Data/NTEMS Tree Rasters/Conifer.H150.tif")
 #Conifer <- rast("Input/Spatial Data/NTEMS Tree Rasters/Conifer.tif")
-#Picegla <- rast("Input/Spatial Data/NTEMS Tree Rasters/Conifer.tif")
-#Broadleaf <- rast("Input/Spatial Data/NTEMS Tree Rasters/Broadleaf.tif")
+#Picegla <- rast("Input/Spatial Data/NTEMS Tree Rasters/Picegla.tif")
 #Age <- rast("Input/Spatial Data/NTEMS Tree Rasters/ForestAge.tif")
 
 ## Load point count data
-#AB_point_counts_sf <- st_read("Output/Spatial Data/AB_point_counts/filtered_point_count_loc_2009.shp")
+AB_point_counts_sf <- st_read("Output/Spatial Data/AB_point_counts/filtered_point_count_loc_2009.shp")
 
-## Extract the WKT string from your desired CRS
-#target_crs_wkt <- st_as_text(st_crs(AB_point_counts_sf))
+# Extract the WKT string from your desired CRS
+target_crs_wkt <- st_as_text(st_crs(AB_point_counts_sf))
 
 ## Create the target CRS object using terra::crs()
-#target_crs_terra <- terra::crs(target_crs_wkt)
+target_crs_terra <- terra::crs(target_crs_wkt)
 
 ## Reproject rasters
 #Conifer_10TM <- terra::project(Conifer, target_crs_terra, method = "near")
-#Broadleaf_10TM <- terra::project(Broadleaf, target_crs_terra, method = "near")
 #Picegla_10TM <- terra::project(Picegla, target_crs_terra, method = "near")
 #Age_10TM <- terra::project(Age, target_crs_terra, method = "near")
-#Broadleaf150_10TM <- terra::project(Broadleaf150, target_crs_terra, method = "bilinear")
-#Conifer150_10TM <- terra::project(Conifer150, target_crs_terra, method = "bilinear")
+
 
 ## Save reprojected rasters
 
@@ -50,8 +50,6 @@ output_dir <- "Output/Spatial Data/reproj_tree_rasters"
 
 ## List of rasters and corresponding filenames
 #rasters <- list(
-  #Broadleaf150_reproj = Broadleaf150_10TM,
-  #Conifer150_reproj = Conifer150_10TM,
   #Conifer_reproj = Conifer_10TM,
   #Broadleaf_reproj = Broadleaf_10TM,
   #Age_reproj = Age_10TM
@@ -66,7 +64,6 @@ output_dir <- "Output/Spatial Data/reproj_tree_rasters"
 
 ## Print success message
 #cat("Reprojected rasters saved to:", output_dir, "\n")
-
 
 
 
@@ -131,13 +128,11 @@ calculate_proportions <- function(buffer) {
     
     # Crop rasters to buffer area
     conifer_crop <- terra::crop(Conifer_10TM, buffer_area)
-    broadleaf_crop <- terra::crop(Broadleaf_10TM, buffer_area)
     picegla_crop <- terra::crop(Picegla_10TM, buffer_area)
     
     
     # Calculate the number of cells occupied by each species within the buffer
     conifer_cells <- terra::global(conifer_crop, "sum", na.rm = TRUE) %>% as.numeric()
-    broadleaf_cells <- terra::global(broadleaf_crop, "sum", na.rm = TRUE) %>% as.numeric()
     picegla_cells <- terra::global(picegla_crop, "sum", na.rm = TRUE) %>% as.numeric()
     
     
@@ -146,11 +141,10 @@ calculate_proportions <- function(buffer) {
     
     # Calculate proportions
     conifer_prop <- ifelse(total_cells > 0, conifer_cells / total_cells, 0)
-    broadleaf_prop <- ifelse(total_cells > 0, broadleaf_cells / total_cells, 0)
     picegla_prop <- ifelse(total_cells > 0, picegla_cells / total_cells, 0)
     
     
-    return(c(conifer_prop = conifer_prop, broadleaf_prop = broadleaf_prop, picegla_prop = picegla_prop))
+    return(c(conifer_prop = conifer_prop, picegla_prop = picegla_prop))
   })
 }
 
@@ -168,11 +162,8 @@ prop_1000_df <- do.call(rbind, prop_1000)
 AB_point_counts_sf <- AB_point_counts_sf %>%
   mutate(
     prop_con_1 = prop_150_df[, "conifer_prop"],
-    prop_dec_1 = prop_150_df[, "broadleaf_prop"],
     prop_con_2 = prop_500_df[, "conifer_prop"],
-    prop_dec_2 = prop_500_df[, "broadleaf_prop"],
     prop_con_3 = prop_1000_df[, "conifer_prop"],
-    prop_dec_3 = prop_1000_df[, "broadleaf_prop"],
     prop_Sw_1 = prop_150_df[, "picegla_prop"],
     prop_Sw_2 = prop_500_df[, "picegla_prop"],
     prop_Sw_3 = prop_1000_df[, "picegla_prop"],
@@ -202,6 +193,8 @@ AB_point_counts_sf_filtered <- AB_point_counts_sf %>%
 # - done in ArcPro because R kept crashing when trying to mask raster)
 
 Conifer_10TM_crop <- rast("Output/Spatial Data/reproj_tree_rasters/Conifer_10TM_crop.tif")
+Picegla_10TM_crop <- rast("Output/Spatial Data/reproj_tree_rasters/Picegla_10TM_crop.tif")
+
 
 # Create filtered buffers (important to recreate buffers based on filtered points)
 buffer150_filtered <- st_buffer(AB_point_counts_sf_filtered, dist = 150)
@@ -290,6 +283,10 @@ AB_point_counts_sf_filtered <- AB_point_counts_sf_filtered %>%
 
 
 
+
+
+
+
 #### Extract forest age
 
 # Load age raster
@@ -346,194 +343,3 @@ st_write(AB_point_counts_sf_filtered, "Output/Spatial Data/AB_point_counts/point
 AB_point_counts_df_filtered <- st_drop_geometry(AB_point_counts_sf_filtered)
 write.csv(AB_point_counts_df_filtered, "Output/Tabular Data/point_counts_NTEMS.csv", row.names = FALSE)
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-########## Calculate Aggregation Index
-
-# Load the binary conifer raster (1 = conifer, 0 = no conifer)
-Conifer_10TM <- rast("Output/Spatial Data/reproj_tree_rasters/Conifer_reproj.tif")
-
-# Function to calculate AI for each buffer size
-calculate_ai <- function(buffer) {
-  lapply(1:nrow(buffer), function(i) {
-    buffer_raster <- terra::crop(Conifer_10TM, buffer[i, ])  # Crop raster
-    
-    # Ensure raster is valid and contains conifer pixels
-    if (!is.null(buffer_raster) && terra::ncell(buffer_raster) > 0) {
-      buffer_raster <- raster(buffer_raster)  # Convert to raster for landscapemetrics
-      
-      # Check if conifer pixels are present
-      if (any(values(buffer_raster) == 1, na.rm = TRUE)) {
-        # Calculate AI only for conifer (class 1)
-        ai_values <- calculate_lsm(buffer_raster, level = "landscape", metric = "ai", class = 1)
-        
-        if (nrow(ai_values) > 0) {
-          return(ifelse(is.na(ai_values$value), 0, ai_values$value))  # Replace NA with 0
-        } else {
-          return(0)  # If no AI value was calculated, return 0
-        }
-      } else {
-        return(0)  # No conifer pixels, AI should be 0 instead of NA
-      }
-    } else {
-      return(0)  # Return 0 for invalid buffers
-    }
-  })
-}
-
-# Calculate AI for each buffer size
-AI_150 <- calculate_ai(buffer150)
-AI_500 <- calculate_ai(buffer500)
-AI_1000 <- calculate_ai(buffer1000)
-
-# Ensure AI outputs are lists and unlist them
-AI_150 <- unlist(AI_150)
-AI_500 <- unlist(AI_500)
-AI_1000 <- unlist(AI_1000)
-
-# Create AI_results data frame using the ID column from AB_point_counts_sf
-AI_results <- data.frame(
-  ID = AB_point_counts_sf$PointID,  # Use the existing 'ID' column
-  AI_150 = AI_150,             # Add AI_150 values
-  AI_500 = AI_500,             # Add AI_500 values
-  AI_1000 = AI_1000            # Add AI_1000 values
-)
-
-# Check if AI columns exist before appending
-if (!inherits(AB_point_counts_sf, "sf")) stop("AB_point_counts_sf is not an sf object!")
-
-# Append AI results to the shapefile, keeping the 'ID' column
-AB_point_counts_sf <- st_sf(cbind(AB_point_counts_sf, AI_results[, -1]))  # Exclude the ID column from AI_results
-
-# Rename the AI columns safely
-ai_cols <- c("AI_150", "AI_500", "AI_1000")
-if (all(ai_cols %in% names(AB_point_counts_sf))) {
-  names(AB_point_counts_sf)[names(AB_point_counts_sf) %in% ai_cols] <- 
-    paste0("NTEMS_AI_", c(1, 2, 3))
-} else {
-  stop("AI columns not found in AB_point_counts_sf!")
-}
-
-
-
-
-
-
-########## Calculate Patch Density
-
-# Function to calculate Patch Density for each buffer size
-calculate_pd <- function(buffer) {
-  lapply(1:nrow(buffer), function(i) {
-    buffer_raster <- terra::crop(Conifer_10TM, buffer[i, ])  # Crop raster
-    
-    # Ensure raster is valid and contains conifer pixels
-    if (!is.null(buffer_raster) && terra::ncell(buffer_raster) > 0) {
-      buffer_raster <- raster(buffer_raster)  # Convert to raster for landscapemetrics
-      
-      # Check if conifer pixels are present
-      if (any(values(buffer_raster) == 1, na.rm = TRUE)) {
-        # Calculate Patch Density only for conifer (class 1)
-        pd_values <- calculate_lsm(buffer_raster, level = "landscape", metric = "pd", class = 1)
-        
-        if (nrow(pd_values) > 0) {
-          return(ifelse(is.na(pd_values$value), 0, pd_values$value))  # Replace NA with 0
-        } else {
-          return(0)  # If no PD value was calculated, return 0
-        }
-      } else {
-        return(0)  # No conifer pixels, PD should be 0 instead of NA
-      }
-    } else {
-      return(0)  # Return 0 for invalid buffers
-    }
-  })
-}
-
-# Calculate Patch Density for each buffer size
-PD_150 <- calculate_pd(buffer150)
-PD_500 <- calculate_pd(buffer500)
-PD_1000 <- calculate_pd(buffer1000)
-
-# Ensure PD outputs are lists and unlist them
-PD_150 <- unlist(PD_150)
-PD_500 <- unlist(PD_500)
-PD_1000 <- unlist(PD_1000)
-
-# Create PD_results data frame using the ID column from AB_point_counts_sf
-PD_results <- data.frame(
-  ID = AB_point_counts_sf$PointID,  # Use the existing 'ID' column
-  PD_150 = PD_150,             # Add PD_150 values
-  PD_500 = PD_500,             # Add PD_500 values
-  PD_1000 = PD_1000            # Add PD_1000 values
-)
-
-# Check if PD columns exist before appending
-if (!inherits(AB_point_counts_sf, "sf")) stop("AB_point_counts_sf is not an sf object!")
-
-# Append PD results to the shapefile, keeping the 'ID' column
-AB_point_counts_sf <- st_sf(cbind(AB_point_counts_sf, PD_results[, -1]))  # Exclude the ID column from PD_results
-
-# Rename the PD columns safely
-pd_cols <- c("PD_150", "PD_500", "PD_1000")
-if (all(pd_cols %in% names(AB_point_counts_sf))) {
-  names(AB_point_counts_sf)[names(AB_point_counts_sf) %in% pd_cols] <- 
-    paste0("NTEMS_PD_", c(1, 2, 3))
-} else {
-  stop("PD columns not found in AB_point_counts_sf!")
-}
-
-
-
-
-
-
-
-
-### Create index based on AI and PD
-
-# Multiply AI and PD for each buffer size
-AB_point_counts_sf$FragIndex_1 <- AB_point_counts_sf$NTEMS_AI_1 * AB_point_counts_sf$NTEMS_PD_1
-AB_point_counts_sf$FragIndex_2 <- AB_point_counts_sf$NTEMS_AI_2 * AB_point_counts_sf$NTEMS_PD_2
-AB_point_counts_sf$FragIndex_3 <- AB_point_counts_sf$NTEMS_AI_3 * AB_point_counts_sf$NTEMS_PD_3
-
-
-# Save the updated shapefile
-st_write(AB_point_counts_sf, "Output/Spatial Data/AB_point_counts/AB_point_counts_10TM_3.shp", append = FALSE)
-
-
-
-
-
-
-
-
-
-########### Create index based on AI and PD
-
-# Multiply AI and PD for each buffer size
-AB_point_counts_sf$FragIndex_1 <- AB_point_counts_sf$NTEMS_AI_1 * AB_point_counts_sf$NTEMS_PD_1
-AB_point_counts_sf$FragIndex_2 <- AB_point_counts_sf$NTEMS_AI_2 * AB_point_counts_sf$NTEMS_PD_2
-AB_point_counts_sf$FragIndex_3 <- AB_point_counts_sf$NTEMS_AI_3 * AB_point_counts_sf$NTEMS_PD_3
-
-# Check the new columns
-head(AB_point_counts_sf[, c("FragIndex_1", "FragIndex_2", "FragIndex_3")])

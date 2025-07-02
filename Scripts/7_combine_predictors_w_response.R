@@ -1,6 +1,9 @@
-# Clear environment
-
-rm(list = ls())  # Removes all objects from the environment
+# ---
+# title: "Combine predictors with response"
+# author: "Leonard Patterson"
+# created: "2025-04-11"
+# description: "This script combines covariates data with point count data
+# ---
 
 # Load libraries
 
@@ -10,7 +13,6 @@ library(dplyr)
 NTEMS <- read.csv("Output/Tabular Data/point_counts_NTEMS.csv")
 LULC <- read.csv("Output/Tabular Data/point_counts_AB_LULC.csv")
 bird_data <- read.csv("Output/Tabular Data/bird_data_2.csv")
-
 
 
 ####### Prep covariate and count data for join
@@ -121,11 +123,6 @@ length(unique(NTEMS_final$location))
 
 
 
-
-
-
-
-
 ### Now that bird and LULC have the same # of locations,
 ### merge LULC -> bird_data using location column
 
@@ -210,78 +207,6 @@ LULC_final_2 <- LULC_final_2 %>%
 
 write.csv(NTEMS_final_2, "Output/Tabular Data/NTEMS_with_bird_data.csv")
 write.csv(LULC_final_2, "Output/Tabular Data/LULC_with_bird_data.csv")
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-########## Lastly, remove any point counts locations that are not located
-########## in a forest.
-
-### First, reproject NTEMS land cover raster
-
-# Import raster
-NTEMS_LC <- rast("Input/Spatial Data/NTEMS_LandCover/CA_forest_VLCE2_2019.tif")
-
-# Extract the WKT string from your desired CRS
-target_crs_wkt <- st_as_text(st_crs(LULC_final))
-
-# Create the target CRS object using terra::crs()
-target_crs_terra <- terra::crs(target_crs_wkt)
-
-# Reproject rasters
-NTEMS_LC_10TM <- terra::project(NTEMS_LC, target_crs_terra, method = "near")
-
-## Save reprojected rasters
-
-## Define output directory and ensure it exists
-output_dir <- "Output/Spatial Data/NTEMS_LandCover"
-
-if (!dir.exists(output_dir)) {
-  dir.create(output_dir, recursive = TRUE)
-}
-
-# Define output file path
-output_file <- file.path(output_dir, "NTEMS_LandCover_reprojected.tif")
-
-# Save the reprojected raster
-terra::writeRaster(NTEMS_LC_10TM, filename = output_file, overwrite = TRUE)
-
-
-# Load reprojected NTEMS land cover raster
-
-NTEMS_LC <- rast("Input/Spatial Data/NTEMS_LandCover/NTEMS_LandCover_reprojected.tif")
 
 
 

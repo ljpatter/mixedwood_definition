@@ -1,3 +1,12 @@
+# ---
+# title: "LULC_data_extraction"
+# author: "Leonard Patterson"
+# created: "2025-04-11"
+# description: "This script extracts habitat covariates from the LULC raster, 
+# which were downloaded from here: https://ags.aer.ca/publications/all-publications/dig-2021-0019
+# ---
+
+
 # Load libraries
 
 library(sf)
@@ -7,9 +16,7 @@ library(terra)
 library(landscapemetrics)  
 library(raster)
 
-# Clear environment
 
-rm(list = ls())  # Removes all objects from the environment
 
 # Load data
 

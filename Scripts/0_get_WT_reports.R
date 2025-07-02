@@ -1,3 +1,13 @@
+# ---
+# title: "Get WT reports"
+# author: "Brendan Casey and Leonard Patterson"
+# created: "2025-04-11"
+# description: This code downloads point count data from WildTrax and combines 
+# data into a single dataframe
+# ---
+
+
+
 ##Load packages----
 # install.packages("remotes")
 #remotes::install_github("ABbiodiversity/wildRtrax")
