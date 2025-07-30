@@ -14,6 +14,10 @@
 # remotes::install_github("ABbiodiversity/wildRtrax@development")
 library(wildrtrax)
 library(tidyverse)
+library(dplyr)
+library(tidyr)
+library(purrr)
+library(tibble)
 
 # Authenticate with WildTrax using environment variables for credentials
 Sys.setenv(WT_USERNAME = "ljpatter", WT_PASSWORD = "Kingedwardpark13")
@@ -22,11 +26,11 @@ wt_auth()
 # Initialize a vector to store project IDs that cause errors
 error_projects <- c()
 
-# Updated pipeline
+# ARU only
 my_report_aru <- wt_get_download_summary(sensor_id = "PC") %>%
-  tibble::as_tibble() %>%
+  as_tibble() %>%
   filter(sensor == "ARU") %>%
-  dplyr::mutate(data = purrr::map(
+  mutate(data = purrr::map(
     .x = project_id,
     .f = ~tryCatch(
       {
@@ -41,19 +45,25 @@ my_report_aru <- wt_get_download_summary(sensor_id = "PC") %>%
         if (!inherits(result, "tbl_df")) {
           result <- tibble::tibble()
         }
+        
+        # Explicitly convert 'location' column to character if it exists
+        if ("location" %in% colnames(result)) {
+          result$location <- as.character(result$location)
+        }
+        
         result
       },
       error = function(e) {
-        # Append the project ID to error_projects
         error_projects <<- c(error_projects, .x)
-        NULL  # Return NULL for failed projects
+        NULL
       }
     )
   )) %>%
-  filter(!sapply(data, is.null)) %>%  # Remove rows with NULL data
-  dplyr::select(c(project, data)) %>%
-  tidyr::unnest(cols = data, keep_empty = TRUE) %>%  # Unnest while handling empty rows
+  filter(!sapply(data, is.null)) %>%
+  select(project, data) %>%
+  unnest(cols = data, keep_empty = TRUE) %>%
   mutate(survey_type = "ARU")
+
 
 # Print the IDs of projects that caused errors
 if (length(error_projects) > 0) {
@@ -62,6 +72,17 @@ if (length(error_projects) > 0) {
 } else {
   message("No errors encountered.")
 }
+
+
+
+
+
+
+
+
+
+
+
 
 
 ###PC only---
@@ -87,12 +108,12 @@ my_report_pc <- wt_get_download_summary(sensor_id = "PC") %>%
   unnest(col = data) %>%
   mutate(survey_type = "PC")
 
-# Save----
+ # Save----
 wildtrax_raw_pc<-my_report_pc
-save(wildtrax_raw_pc, file=paste0("Output/wildtrax_raw_pc_", Sys.Date(), ".rData"))
+save(wildtrax_raw_pc, file=paste0("Output/R Data/wildtrax_raw_pc_", Sys.Date(), ".rData"))
 
 wildtrax_raw_aru<-my_report_aru
-save(wildtrax_raw_aru, file=paste0("Output/wildtrax_raw_aru_", Sys.Date(), ".rData"))
+save(wildtrax_raw_aru, file=paste0("Output/R Data/wildtrax_raw_aru_", Sys.Date(), ".rData"))
 
 
 

@@ -20,8 +20,8 @@ library(sf) #spatial projections and getting new coordinates
 
 
 ##Import data----
-load("Output/wildtrax_raw_aru_2025-01-18.rData")
-load("Output/wildtrax_raw_pc_2025-01-18.rData")
+load("Output/R Data/wildtrax_raw_aru_2025-01-18.rData")
+load("Output/R Data/wildtrax_raw_pc_2025-01-18.rData")
 
 ##////////////////////////////////////////////////////////////////
 # Login to WildTrax----
@@ -97,7 +97,7 @@ w2<-w%>%semi_join(aves)
 ## Remove single species projects----
 w3 <- w2%>%group_by(project_id) %>%
   #single species projects only have one species or none.
-  filter(n_distinct(species_code) > 2)%>% 
+  filter(n_distinct(species_code) > 3)%>% 
   ungroup()%>%
   distinct()
 
@@ -105,7 +105,7 @@ w3 <- w2%>%group_by(project_id) %>%
 # Exclude BU training, ABMI, & all 
 # "DO NOT USE" projects listed in the below .csv
 instructions <- read.csv(file.path(
-  paste0("Input/Data/projectInstructions.csv")))
+  paste0("Input/Tabular Data/projectInstructions.csv")))
 
 w4 <- w3 %>% 
   anti_join(instructions) %>%
@@ -303,6 +303,12 @@ w14 <- w13 %>%
 w15 <- w14 %>%
   filter(as.numeric(max_dist_band) >= 100 | max_dist_band == "INF")
 
+# Remove all entries where individual_count is 0 (i.e., PC where 0 had to be entered for non-detection)
+w16 <- w15 %>%
+  mutate(.ic = suppressWarnings(as.numeric(as.character(individual_count)))) %>%
+  filter(survey_type != "PC" | is.na(.ic) | .ic != 0) %>%
+  select(-.ic)
+
 ### Add coordinates in UTM
 
 # Load in AB boundary shp file to extract PCS
@@ -315,7 +321,7 @@ target_crs <- st_crs(AB_boundary_10TM)
 
 ##////////////////////////////////////////////////////////////////
 # Add XY coordinates that are in meters----
-w16<-w15%>%
+w17<-w16%>%
   st_as_sf(coords=c("lon", "lat"), crs=4326, remove=FALSE)%>%
   st_transform(crs=target_crs)%>%#transform to projection that uses meters
   dplyr::mutate(x_AEP10TM = sf::st_coordinates(.)[,1], #extract coordinates and add as new columns
@@ -333,22 +339,15 @@ colnms<- c("organization", "project", "project_id", "survey_type", "location", "
            "max_duration", "n_surveys", "survey_effort", "detection_time", "detection_distance", 
            "species_code", "individual_order", "individual_count","vocalization") 
 
-wildtrax_cleaned<-w16%>%
+wildtrax_cleaned<-w17%>%
   dplyr::select(all_of(colnms))
 
 # Save
-save(wildtrax_cleaned, file=paste0("Output/wildtrax_cleaned_", Sys.Date(), ".rData"))
+save(wildtrax_cleaned, file=paste0("Output/R Data/wildtrax_cleaned_", Sys.Date(), ".rData"))
 
 
 # Clear environment
 rm(list = ls())  # Removes all objects from the environment
-
-
-
-
-
-
-
 
 
 

@@ -32,7 +32,8 @@ library(dplyr)
 library(landscapemetrics)
 library(patchwork)        
 
-
+# Load data
+joined_data <- read.csv("Output/Tabular Data/joined_data.csv")
 
 # Load study area
 study_area <- st_read("Input/Spatial Data/Study Area/study_area.shp")
@@ -265,8 +266,6 @@ cat("\n✅ Saved all model outputs for Poisson models with year as FACTOR!\n")
 
 
 
-
-
 ##################### Poisson BRT Variable Importance Analysis #####################
 
 
@@ -286,7 +285,7 @@ for (sp in names(final_model_list)) {
 }
 
 # === Load variable importance results ===
-imp_df <- readRDS("imp_df_final_parallel_poisson.rds")
+imp_df <- readRDS("Output/Tabular Data/imp_df_final_parallel_poisson.rds")
 
 # === Nuisance variables to exclude ===
 nuisance_vars <- c("year", "x_AEP10TM", "y_AEP10TM")
@@ -385,15 +384,12 @@ for (sp in species_list) {
 
 
 
-
-
-
 # === FULL PDPs FOR ALL VARIABLES USED IN FINAL MODELS ===
 
 
 # Load saved objects
 results_list <- readRDS("Output/Tabular Data/results_list_final_parallel_poisson.rds")
-final_model_list <- readRDS("Output/Tabular Data/final_model_list_parallel_poisson.rds")
+final_model_list <- readRDS("Output/Tabular Data/final_model_list_parallel_poisson_1.rds")
 
 # Define nuisance variables to exclude
 nuisance_vars <- c("x_AEP10TM", "y_AEP10TM", "year")
@@ -463,6 +459,88 @@ for (sp in names(final_model_list)) {
 
 
 
+
+
+
+
+
+
+
+
+
+
+######### PDP ON RAW SCALE
+
+# === FULL PDPs ON RAW SCALE, CENTERED ===
+
+# Load saved objects
+results_list <- readRDS("Output/Tabular Data/results_list_final_parallel_poisson.rds")
+final_model_list <- readRDS("Output/Tabular Data/final_model_list_parallel_poisson.rds")
+
+# Define nuisance variables to exclude
+nuisance_vars <- c("x_AEP10TM", "y_AEP10TM", "year")
+
+# Loop through each species
+for (sp in names(final_model_list)) {
+  cat("\n=== PDPs for", sp, "===\n")
+  
+  model <- final_model_list[[sp]]
+  var_importance <- results_list[[sp]]
+  
+  # 🔒 Check that year is in model and is a factor
+  if ("year" %in% names(model$gbm.call$dataframe)) {
+    is_factor <- is.factor(model$gbm.call$dataframe$year)
+    cat("✅ 'year' is present and is.factor(year) =", is_factor, "\n")
+    stopifnot(is_factor)
+  } else {
+    warning("'year' is not in the model data — skipping check")
+  }
+  
+  # Get all predictor names used in the final model (excluding nuisance)
+  valid_vars <- model$gbm.call$predictor.names
+  valid_vars <- valid_vars[!valid_vars %in% nuisance_vars]
+  
+  for (var in valid_vars) {
+    # Safely generate PDP
+    pd <- try(gbm::plot.gbm(model, i.var = var, return.grid = TRUE), silent = TRUE)
+    
+    if (inherits(pd, "try-error") || !("y" %in% names(pd)) || all(is.na(pd$y))) {
+      message("Skipping variable: ", var, " (could not generate valid PDP)")
+      next
+    }
+    
+    # Back-transform to raw expected count and center
+    pd$y_raw <- exp(pd$y)
+    pd$y_raw_centered <- pd$y_raw / mean(pd$y_raw, na.rm = TRUE)
+    
+    # Extract relative contribution
+    contrib <- var_importance %>%
+      filter(Feature == var) %>%
+      pull(MeanGain) %>%
+      round(1)
+    
+    title_text <- paste0(sp, " - ", var, " (", contrib, "%)")
+    
+    # Plot
+    p <- ggplot(pd, aes_string(x = var, y = "y_raw_centered")) +
+      geom_line(color = "black", linewidth = 1) +
+      geom_hline(yintercept = 1, linetype = "dashed", color = "red") +
+      labs(
+        title = title_text,
+        x = var,
+        y = "Centered Expected Count (raw scale)"
+      ) +
+      theme_minimal(base_size = 14) +
+      theme(
+        panel.grid = element_blank(),
+        plot.title = element_text(face = "bold", hjust = 0.5),
+        axis.title = element_text(size = 14),
+        axis.text = element_text(size = 12)
+      )
+    
+    print(p)
+  }
+}
 
 
 
@@ -553,15 +631,15 @@ filtered_df <- all_friedman_interactions %>%
   }))) %>%
   ungroup()
 
-# Top 5 per species
+# Top 10 per species
 top5_filtered <- filtered_df %>%
   group_by(Species) %>%
   arrange(desc(H)) %>%
-  slice_head(n = 5) %>%
+  slice_head(n = 10) %>%
   ungroup()
 
 # Show the pretty table
-kable(top5_filtered, caption = "Top 5 Friedman H Interactions per Species (Strict Filter)")
+kable(top5_filtered, caption = "Top 10 Friedman H Interactions per Species (Strict Filter)")
 
 
 write.csv(top5_filtered, "Output/Tabular Data/interactions_table.csv")
@@ -829,7 +907,7 @@ for (sp in names(final_model_list)) {
 
 
 
-############## Synthetic landscape
+############## OG Synthetic landscape (smoothed surface)
 
 
 # === Load model ===
@@ -938,9 +1016,168 @@ ggplot(simulated_predictions, aes(x = prop_con, y = clumpy, fill = scaled_predic
 
 
 
-library(terra)
 
-# --- Create 10x10 raster matrix for each layout ---
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+################### 10x10 synthetic landscape
+
+# Load libraries
+library(ggplot2)
+library(terra)
+library(dplyr)
+library(gbm)
 
 # INTIMATE: Random mix of 0s and 1s with ~equal frequency for CLUMPY ≈ 0
 set.seed(123)  # For reproducibility
@@ -972,22 +1209,7 @@ writeRaster(r_segregated, "segregated_layout.tif", overwrite = TRUE)
 
 
 
-
-
-
-
-
-
-
-
-
-
-
 ### Visualize raster
-
-
-library(ggplot2)
-library(terra)
 
 # Load and convert raster to data.frame
 r <- rast("segregated_layout.tif")
@@ -1009,9 +1231,6 @@ ggplot(df, aes(x = x, y = y, fill = factor(cover))) +
 
 
 
-library(ggplot2)
-library(terra)
-
 # Load and convert intimate raster to data.frame
 r <- rast("intimate_layout.tif")
 df <- as.data.frame(r, xy = TRUE)
@@ -1028,11 +1247,6 @@ ggplot(df, aes(x = x, y = y, fill = factor(cover))) +
   coord_equal() +
   theme_minimal(base_size = 14) +
   labs(title = "Synthetic Intimate Forest Layout (CLUMPY ≈ 0)", x = "X", y = "Y")
-
-
-
-
-
 
 
 
@@ -1067,15 +1281,7 @@ print(clumpy_val_segregated)
 
 
 
-
-
-
-
-
-
-library(terra)
-library(dplyr)
-library(gbm)
+### Plot
 
 # Load your synthetic rasters
 r_int <- rast("intimate_layout.tif")
@@ -1150,16 +1356,6 @@ for (sp in names(final_model_list)) {
 synthetic_pred_df <- bind_rows(synthetic_preds)
 
 
-
-
-
-
-
-
-### Plot
-
-library(ggplot2)
-
 plot_synthetic_predictions <- function(pred_df, species_code) {
   
   # Filter for one species
@@ -1190,6 +1386,21 @@ plot_synthetic_predictions <- function(pred_df, species_code) {
 plot_synthetic_predictions(synthetic_pred_df, "BBWA")
 plot_synthetic_predictions(synthetic_pred_df, "TEWA")
 plot_synthetic_predictions(synthetic_pred_df, "BTNW")
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -1524,6 +1735,393 @@ plot_all_species_predictions <- function(pred_df, r_intimate_orig, r_segregated_
 # --- Call the new plotting function to generate the complete figure ---
 final_plot <- plot_all_species_predictions(synthetic_pred_df, r_intimate, r_segregated)
 print(final_plot) # Print the final plot
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# Load necessary libraries
+library(terra)
+library(ggplot2)
+library(patchwork)
+library(dplyr)
+library(gbm) # For models
+library(landscapemetrics) # For CLUMPY calculation
+# You might need to load 'dismo', 'pROC', 'tidyr', 'tibble' if they are used elsewhere or not yet loaded by your model script
+library(dismo)
+library(pROC)
+library(tidyr)
+library(tibble)
+
+
+############### Synthetic aggregate and dispersed prediction plots
+
+# Set font for graphics
+theme_set(theme_minimal(base_size = 14) +
+            theme(text = element_text(family = "")))
+
+### Create raster matrices for each configuration and grain size
+
+# Define cell size and extent for a 150m radius (approx. 300m diameter)
+# 10m cells for a 300m extent means 30x30 matrix
+matrix_dim_10m <- 30 # For 10m grain, 30x30 matrix gives 300x300m extent
+matrix_dim_30m <- 10 # For 30m grain, 10x10 matrix gives 300x300m extent (after resampling)
+
+# INTIMATE: Random mix of 0s and 1s with ~equal frequency for CLUMPY ≈ 0
+set.seed(123) # For reproducibility
+intimate_mat_10m <- matrix(sample(c(0, 1), size = matrix_dim_10m^2, replace = TRUE), nrow = matrix_dim_10m)
+
+# SEGREGATED: Left half conifer (1), right half deciduous (0)
+segregated_mat_10m <- matrix(0, nrow = matrix_dim_10m, ncol = matrix_dim_10m)
+segregated_mat_10m[, 1:(matrix_dim_10m / 2)] <- 1 # Left side = conifer
+
+# --- Convert to SpatRaster objects ---
+
+make_raster <- function(mat, cell_size) {
+  # Define extent based on matrix dimensions and cell size
+  extent_val <- ext(0, ncol(mat) * cell_size, 0, nrow(mat) * cell_size)
+  r <- rast(mat, extent = extent_val)
+  crs(r) <- "EPSG:32612"         # Projected CRS (arbitrary for synthetic, but good practice)
+  names(r) <- "conifer"          # Name the layer
+  return(r)
+}
+
+# Create 10m grain rasters
+r_intimate_10m <- make_raster(intimate_mat_10m, cell_size = 10)
+r_segregated_10m <- make_raster(segregated_mat_10m, cell_size = 10)
+
+# Resample 10m rasters to 30m grain (target 10x10 matrix for 30m cells covering same 300x300m extent)
+r_intimate_30m <- resample(r_intimate_10m, make_raster(matrix(0, nrow = matrix_dim_30m, ncol = matrix_dim_30m), cell_size = 30), method = "near")
+r_segregated_30m <- resample(r_segregated_10m, make_raster(matrix(0, nrow = matrix_dim_30m, ncol = matrix_dim_30m), cell_size = 30), method = "near")
+
+
+# --- Define conceptual CLUMPY values from figure description ---
+clumpy_int_val <- 0 # randomized layout ~ 0
+clumpy_seg_val <- 1 # perfectly segregated ~ 1
+
+
+# --- Define age values ---
+ages <- c(30, 60, 90)
+
+# --- Define fixed values for non-landscape predictors ---
+# These are representative of survey conditions and location for synthetic prediction.
+# For 'year', use a representative year level from your actual model's factor levels.
+# Assuming your models have 'year' as a factor and it's present in the first model.
+if (!exists("final_model_list") || length(final_model_list) == 0) {
+  stop("Error: 'final_model_list' not found or is empty. Please run your model training script first.")
+}
+representative_year <- levels(final_model_list[[1]]$gbm.call$data$year)[1]
+fixed_x_coord <- 0 # For synthetic landscape, center at 0
+fixed_y_coord <- 0 # For synthetic landscape, center at 0
+
+
+# Expand raster into prediction dataframe and populate all model predictors
+make_prediction_df <- function(r, layout_type, age_val, grain_type) {
+  df <- as.data.frame(r, xy = TRUE)
+  names(df)[3] <- "conifer_pixel_value" # Temporary name for the 0/1 raster value
+  
+  # Determine clumpy value based on layout type
+  current_clumpy_val <- ifelse(layout_type == "Intimate", clumpy_int_val, clumpy_seg_val)
+  
+  # Calculate proportion of conifer for the entire synthetic landscape
+  # This serves as the 'prop_con' value at various scales (150, 500, 1000)
+  overall_prop_con <- mean(df$conifer_pixel_value)
+  
+  # Initialize all predictor columns expected by the model with default values
+  # We will fill specific ones based on the synthetic landscape
+  # Get predictor names from the first model in your list (assuming they are consistent across species)
+  all_predictor_names <- final_model_list[[1]]$gbm.call$predictor.names
+  pred_df_template <- data.frame(matrix(NA, nrow = nrow(df), ncol = length(all_predictor_names)))
+  colnames(pred_df_template) <- all_predictor_names
+  
+  # Populate common predictors first
+  pred_df_template$year <- representative_year
+  pred_df_template$x_AEP10TM <- fixed_x_coord
+  pred_df_template$y_AEP10TM <- fixed_y_coord
+  
+  # Populate landscape-specific predictors based on current grain_type and layout
+  for (pred_name in all_predictor_names) {
+    if (grepl("prop_con_", pred_name)) {
+      # For prop_con at any scale, use the overall proportion of conifer in the synthetic landscape
+      # This is an simplification as your actual model might derive this from a larger landscape.
+      pred_df_template[[pred_name]] <- overall_prop_con
+    } else if (grepl("clumpy_", pred_name)) {
+      # For clumpy, use the conceptual clumpy value
+      # This value is based on the *pattern* (intimate/segregated), not pixel-specific.
+      pred_df_template[[pred_name]] <- current_clumpy_val
+    } else if (grepl("age_mn_", pred_name)) {
+      # Use the current age for all age_mn predictors
+      pred_df_template[[pred_name]] <- age_val
+    }
+  }
+  
+  # Add xy coordinates and temporary conifer_pixel_value for plotting
+  pred_df_template$x <- df$x
+  pred_df_template$y <- df$y
+  pred_df_template$conifer_pixel_value <- df$conifer_pixel_value # Keep for potential visualization checks
+  
+  # Add metadata for faceting
+  pred_df_template$layout <- layout_type
+  pred_df_template$age_class <- age_val
+  pred_df_template$grain_size_label <- grain_type # "10m" or "30m"
+  
+  return(pred_df_template)
+}
+
+
+# Predict for one species on one raster
+predict_synthetic <- function(model, prediction_data_frame) {
+  # Select only the columns that are actual predictors in the model
+  model_predictors <- model$gbm.call$predictor.names
+  # Ensure 'year' is a factor in the prediction data as well
+  prediction_data_frame$year <- as.factor(prediction_data_frame$year)
+  
+  # Check if all required predictor columns exist in the prediction dataframe
+  missing_predictors <- setdiff(model_predictors, names(prediction_data_frame))
+  if (length(missing_predictors) > 0) {
+    warning(paste("Missing predictors in prediction_data_frame for model:", paste(missing_predictors, collapse = ", ")))
+    # You might want to assign 0 or NA to missing predictors depending on your model's robustness
+    # For now, let's assume make_prediction_df covers all.
+  }
+  
+  # Ensure the order of columns matches what gbm::predict expects (though predict.gbm is usually robust)
+  # and include only the model's predictor names
+  pred_input_df <- prediction_data_frame %>%
+    dplyr::select(all_of(model_predictors))
+  
+  # Make predictions
+  # Assuming your models were trained without offset in gbm.predict
+  # If your models use offset in prediction, you would need to adjust predict.gbm call.
+  # Given your gbm.step uses 'offset', predict.gbm will implicitly use the offset column if present
+  # and correctly named in newdata, or apply the prediction on the log-link scale if not.
+  # Here, we don't include an offset column in pred_input_df for simplicity as per common prediction usage.
+  prediction_data_frame$pred <- predict.gbm(model,
+                                            newdata = pred_input_df,
+                                            n.trees = model$gbm.call$best.trees,
+                                            type = "response")
+  
+  return(prediction_data_frame)
+}
+
+
+# Loop over all combinations: species × layout × age × grain size
+synthetic_preds <- list()
+
+for (age_val in ages) {
+  for (layout_type in c("Intimate", "Segregated")) {
+    for (grain_label in c("10m", "30m")) { # Looping through "10m" (LULC) and "30m" (NTEMS)
+      
+      # Select the appropriate raster based on grain_label and layout_type
+      current_raster <- if (grain_label == "10m") {
+        if (layout_type == "Intimate") r_intimate_10m else r_segregated_10m
+      } else { # grain_label == "30m"
+        if (layout_type == "Intimate") r_intimate_30m else r_segregated_30m
+      }
+      
+      # Create the prediction dataframe for this specific combination
+      pred_df_base <- make_prediction_df(current_raster, layout_type, age_val, grain_label)
+      
+      for (sp in names(final_model_list)) {
+        model <- final_model_list[[sp]]
+        
+        # Make predictions using the current model and the prepared dataframe
+        predicted_df <- predict_synthetic(model, pred_df_base) %>%
+          # Add species information to the predicted data frame
+          mutate(Species = sp)
+        
+        # Store the results
+        key <- paste(sp, age_val, layout_type, grain_label, sep = "_")
+        synthetic_preds[[key]] <- predicted_df
+      }
+    }
+  }
+}
+
+# Combine all into one data frame
+synthetic_pred_df <- bind_rows(synthetic_preds) %>%
+  # Factor for correct ordering in facets
+  mutate(
+    layout = factor(layout, levels = c("Intimate", "Segregated")),
+    grain_size_label = factor(grain_size_label, levels = c("10m", "30m")),
+    age_class = factor(age_class, levels = ages) # Ensure age order
+  )
+
+
+# --- Main plotting function for all species ---
+plot_all_species_predictions <- function(pred_df, r_intimate_10m_orig, r_segregated_10m_orig) {
+  
+  # Define all_species_codes at the beginning of the function
+  all_species_codes <- unique(pred_df$Species)
+  
+  # --- 1. Create reference plots for original layouts (Pure Black & White) ---
+  
+  # Function to create a reference plot for a given raster
+  create_ref_plot <- function(r_orig) {
+    df_ref <- as.data.frame(r_orig, xy = TRUE)
+    names(df_ref)[3] <- "cover"
+    ggplot(df_ref, aes(x = x, y = y, fill = factor(cover))) +
+      geom_raster() +
+      scale_fill_manual(
+        values = c("white", "black"),
+        labels = c("Deciduous", "Conifer"),
+        name = "Cover Type"
+      ) +
+      coord_equal() +
+      theme(
+        plot.title = element_text(size = 12, hjust = 0.5),
+        axis.text.x = element_blank(),
+        axis.text.y = element_blank(),
+        axis.ticks = element_blank(),
+        axis.title.x = element_blank(),
+        axis.title.y = element_blank(),
+        plot.margin = unit(c(0.2, 0.2, 0.2, 0.2), "cm"),
+        legend.position = "right",
+        legend.justification = "center",
+        legend.title = element_text(size = 10),
+        legend.text = element_text(size = 8)
+      ) +
+      scale_x_continuous(expand = c(0, 0), breaks = NULL) +
+      scale_y_continuous(expand = c(0, 0), breaks = NULL)
+  }
+  
+  p_intimate_ref_10m <- create_ref_plot(r_intimate_10m_orig)
+  p_segregated_ref_10m <- create_ref_plot(r_segregated_10m_orig)
+  
+  # Create blank plots for titles
+  intimate_title_plot <- ggplot() + theme_void() +
+    annotate("text", x = 0.5, y = 0.5, label = "Intimate configuration", size = 5, fontface = "bold")
+  segregated_title_plot <- ggplot() + theme_void() +
+    annotate("text", x = 0.5, y = 0.5, label = "Spatially segregated configuration", size = 5, fontface = "bold")
+  
+  
+  # Arrange the top row with titles above the reference plots
+  top_row_with_titles_and_refs <- wrap_plots(
+    plot_spacer(), # Spacer for alignment
+    intimate_title_plot,
+    segregated_title_plot,
+    plot_spacer(), # Spacer for alignment
+    widths = c(0.5, 1, 1, 0.5), # Match widths of plots below
+    nrow = 1
+  ) / wrap_plots(
+    plot_spacer(), # Spacer for alignment
+    p_intimate_ref_10m + theme(legend.position = "none"), # Remove legend from this specific plot
+    p_segregated_ref_10m + theme(legend.position = "none"), # Remove legend from this specific plot
+    plot_spacer(), # Spacer for alignment
+    widths = c(0.5, 1, 1, 0.5),
+    nrow = 1
+  ) + plot_layout(guides = "collect") & theme(legend.position = "right") # Collect legends from reference plots
+  
+  
+  # --- 2. Create prediction plots for each species, layout, age, and grain size ---
+  
+  species_plots <- list()
+  # The 'for' loop for species starts here:
+  for (i in seq_along(all_species_codes)) {
+    sp <- all_species_codes[i]
+    # Filter for current species, then rescale predictions globally for that species
+    df_plot_sp <- pred_df %>%
+      filter(Species == sp)
+    
+    # Rescale 'pred' values for each species across all grain sizes, layouts, and ages
+    min_pred_sp <- min(df_plot_sp$pred, na.rm = TRUE)
+    max_pred_sp <- max(df_plot_sp$pred, na.rm = TRUE)
+    df_plot_sp <- df_plot_sp %>%
+      mutate(scaled_pred = (pred - min_pred_sp) / (max_pred_sp - min_pred_sp))
+    
+    
+    p_sp <- ggplot(df_plot_sp, aes(x = x, y = y, fill = scaled_pred)) +
+      geom_raster() +
+      # Facet by age_class (rows) and then layout and grain_size (combined columns)
+      facet_grid(age_class ~ layout + grain_size_label,
+                 labeller = labeller(
+                   age_class = function(x) paste0(x, " years"),
+                   layout = label_value,
+                   grain_size_label = function(x) paste0(x, " grain") # Label for grain size
+                 )
+      ) +
+      scale_fill_viridis_c(
+        option = "magma",
+        limits = c(0, 1),
+        name = "Relative\nAbundance"
+      ) +
+      coord_equal() + # Keep this as it's critical for square pixels
+      theme(
+        axis.text.x = element_blank(),
+        axis.text.y = element_blank(),
+        axis.ticks = element_blank(),
+        axis.title.x = element_blank(),
+        axis.title.y = element_blank(),
+        panel.spacing = unit(0.5, "cm"), # Spacing between facets
+        strip.text = element_text(size = 12, face = "bold"), # Facet labels
+        plot.margin = unit(c(0.2, 0.2, 0.2, 0.2), "cm")
+      ) +
+      scale_x_continuous(expand = c(0, 0), breaks = NULL) +
+      scale_y_continuous(expand = c(0, 0), breaks = NULL)
+    
+    # Only keep one legend for relative abundance, placed on the rightmost species plot
+    if (i != length(all_species_codes)) {
+      p_sp <- p_sp + theme(legend.position = "none")
+    }
+    
+    species_plots[[sp]] <- p_sp
+  }
+  
+  # Combine species plots side by side
+  p_combined_species_with_tags <- wrap_plots(species_plots, nrow = 1) +
+    plot_annotation(tag_levels = list(all_species_codes)) &
+    theme(
+      plot.tag = element_text(size = 14, face = "bold", hjust = 0.5, vjust = 0),
+      plot.tag.position = "top"
+    )
+  
+  # Final combination: top row (titles + reference plots) over bottom row (combined species with tags)
+  final_plot_object <- top_row_with_titles_and_refs / p_combined_species_with_tags
+  
+  final_plot_object <- final_plot_object + plot_layout(
+    heights = c(1, 3) # Combined height for top two rows (titles + refs), then 3 for predictions
+  )
+  
+  # Apply overall main title to the *entire* figure.
+  final_plot_object <- final_plot_object + plot_annotation(
+    title = "Predicted relative abundance for black-throated green warbler (BTNW), Tennessee\\nwarbler (TEWA), and bay-breasted warbler (BBWA) in synthetic intimate and spatially\\nsegregated mixedwood forest configurations at three forest age classes, and two grain sizes.\\nTop panels illustrate the two synthetic mixedwood configurations containing equal coniferous\\nand deciduous pixels: an intimate layout (left)(CLUMPY $\\approx$ 0) and a spatially segregated\\nlayout (right)(CLUMPY $\\approx$ 1). Predictions were made using scale of effect predictors. Relative\\nabundance predictions are scaled between 0 (low relative abundance) to 1 (high relative abundance)."
+  ) & theme(
+    plot.title = element_text(size = 16, face = "bold", hjust = 0.5)
+  )
+  
+  return(final_plot_object)
+}
+
+print(final_plot_object)
 
 
 

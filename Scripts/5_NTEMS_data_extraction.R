@@ -25,42 +25,38 @@ library(raster)
 
 ## Import rasters
 #Conifer <- rast("Input/Spatial Data/NTEMS Tree Rasters/Conifer.tif")
-#Picegla <- rast("Input/Spatial Data/NTEMS Tree Rasters/Picegla.tif")
+#Broadleaf <- rast("Input/Spatial Data/NTEMS Tree Rasters/Broadleaf.tif")
 #Age <- rast("Input/Spatial Data/NTEMS Tree Rasters/ForestAge.tif")
 
 ## Load point count data
-AB_point_counts_sf <- st_read("Output/Spatial Data/AB_point_counts/filtered_point_count_loc_2009.shp")
+#AB_point_counts_sf <- st_read("Output/Spatial Data/AB_point_counts/filtered_point_count_loc_2009.shp")
 
 # Extract the WKT string from your desired CRS
-target_crs_wkt <- st_as_text(st_crs(AB_point_counts_sf))
+#target_crs_wkt <- st_as_text(st_crs(AB_point_counts_sf))
 
 ## Create the target CRS object using terra::crs()
-target_crs_terra <- terra::crs(target_crs_wkt)
+#target_crs_terra <- terra::crs(target_crs_wkt)
 
 ## Reproject rasters
 #Conifer_10TM <- terra::project(Conifer, target_crs_terra, method = "near")
-#Picegla_10TM <- terra::project(Picegla, target_crs_terra, method = "near")
 #Age_10TM <- terra::project(Age, target_crs_terra, method = "near")
 
 
 ## Save reprojected rasters
 
 ## Define output directory and ensure it exists
-output_dir <- "Output/Spatial Data/reproj_tree_rasters"
+#output_dir <- "Output/Spatial Data/Reprojected Tree Rasters"
 
 ## List of rasters and corresponding filenames
 #rasters <- list(
-  #Conifer_reproj = Conifer_10TM,
-  #Broadleaf_reproj = Broadleaf_10TM,
-  #Age_reproj = Age_10TM
+#  Conifer_reproj = Conifer_10TM,
+#  Age_reproj = Age_10TM
 #)
 
 # Loop to save rasters
 #for (name in names(rasters)) {
 #  writeRaster(rasters[[name]], file.path(output_dir, paste0(name, ".tif")), overwrite = TRUE)
 #}
-
-#writeRaster(Picegla_10TM, "Output/Spatial Data/reproj_tree_rasters/Picegla_reproj.tif", overwrite = TRUE)
 
 ## Print success message
 #cat("Reprojected rasters saved to:", output_dir, "\n")
@@ -74,16 +70,13 @@ output_dir <- "Output/Spatial Data/reproj_tree_rasters"
 
 
 
-############# Calculate proportion conifer, white spruce, and broadleaf
+############# Calculate proportion conifer
 
 # Load point count data
-AB_point_counts_sf <- st_read("Output/Spatial Data/AB_point_counts/filtered_point_count_loc_2009.shp")
+AB_point_counts_sf <- st_read("Output/Spatial Data/AB_point_counts/filtered_point_counts.shp")
 
 # Load rasters
-Broadleaf_10TM <- rast("Output/Spatial Data/reproj_tree_rasters/Broadleaf_reproj.tif")
-Conifer_10TM <- rast("Output/Spatial Data/reproj_tree_rasters/Conifer_reproj.tif")
-Picegla_10TM <- rast("Output/Spatial Data/reproj_tree_rasters/Picegla_reproj.tif")
-
+Conifer_10TM <- rast("Output/Spatial Data/Reprojected Tree Rasters/Conifer_reproj.tif")
 
 # Create a 1000 meter buffer around each point
 buffer1000 <- st_buffer(AB_point_counts_sf, dist = 1000)
@@ -128,23 +121,17 @@ calculate_proportions <- function(buffer) {
     
     # Crop rasters to buffer area
     conifer_crop <- terra::crop(Conifer_10TM, buffer_area)
-    picegla_crop <- terra::crop(Picegla_10TM, buffer_area)
-    
     
     # Calculate the number of cells occupied by each species within the buffer
     conifer_cells <- terra::global(conifer_crop, "sum", na.rm = TRUE) %>% as.numeric()
-    picegla_cells <- terra::global(picegla_crop, "sum", na.rm = TRUE) %>% as.numeric()
-    
     
     # Calculate total number of cells in the cropped raster (buffer area)
     total_cells <- terra::ncell(conifer_crop)
     
     # Calculate proportions
     conifer_prop <- ifelse(total_cells > 0, conifer_cells / total_cells, 0)
-    picegla_prop <- ifelse(total_cells > 0, picegla_cells / total_cells, 0)
     
-    
-    return(c(conifer_prop = conifer_prop, picegla_prop = picegla_prop))
+    return(c(conifer_prop = conifer_prop))
   })
 }
 
@@ -164,9 +151,6 @@ AB_point_counts_sf <- AB_point_counts_sf %>%
     prop_con_1 = prop_150_df[, "conifer_prop"],
     prop_con_2 = prop_500_df[, "conifer_prop"],
     prop_con_3 = prop_1000_df[, "conifer_prop"],
-    prop_Sw_1 = prop_150_df[, "picegla_prop"],
-    prop_Sw_2 = prop_500_df[, "picegla_prop"],
-    prop_Sw_3 = prop_1000_df[, "picegla_prop"],
   )
 
 # Add unique ID column
@@ -192,9 +176,7 @@ AB_point_counts_sf_filtered <- AB_point_counts_sf %>%
 # Load cropped conifer raster (cropped to remove NA values outside of AB boundary
 # - done in ArcPro because R kept crashing when trying to mask raster)
 
-Conifer_10TM_crop <- rast("Output/Spatial Data/reproj_tree_rasters/Conifer_10TM_crop.tif")
-Picegla_10TM_crop <- rast("Output/Spatial Data/reproj_tree_rasters/Picegla_10TM_crop.tif")
-
+Conifer_10TM_crop <- rast("Output/Spatial Data/Reprojected Tree Rasters/Conifer_10TM_crop.tif")
 
 # Create filtered buffers (important to recreate buffers based on filtered points)
 buffer150_filtered <- st_buffer(AB_point_counts_sf_filtered, dist = 150)
@@ -290,7 +272,7 @@ AB_point_counts_sf_filtered <- AB_point_counts_sf_filtered %>%
 #### Extract forest age
 
 # Load age raster
-Age_10TM <- rast("Output/Spatial Data/reproj_tree_rasters/Age_reproj.tif")
+Age_10TM <- rast("Output/Spatial Data/Reprojected Tree Rasters/Age_reproj.tif")
 
 # Function to calculate mean and median age
 calculate_age_stats <- function(buffer) {
@@ -337,7 +319,7 @@ AB_point_counts_sf_filtered <- AB_point_counts_sf_filtered %>%
   )
 
 # Save as shp file
-st_write(AB_point_counts_sf_filtered, "Output/Spatial Data/AB_point_counts/point_count_locs_NTEMS.shp") 
+st_write(AB_point_counts_sf_filtered, "Output/Spatial Data/AB_point_counts/point_count_locs_NTEMS.shp", append=FALSE) 
 
 # Save as CSV
 AB_point_counts_df_filtered <- st_drop_geometry(AB_point_counts_sf_filtered)

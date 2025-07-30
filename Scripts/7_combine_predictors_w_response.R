@@ -8,10 +8,11 @@
 # Load libraries
 
 library(dplyr)
+library(tidyr)
 
 # Load data
 NTEMS <- read.csv("Output/Tabular Data/point_counts_NTEMS.csv")
-LULC <- read.csv("Output/Tabular Data/point_counts_AB_LULC.csv")
+LULC <- read.csv("Output/Tabular Data/point_counts_AB_LULC_5m.csv")
 bird_data <- read.csv("Output/Tabular Data/bird_data_2.csv")
 
 
@@ -27,13 +28,6 @@ bd_filt_1 <- bird_data %>%
   dplyr::select(project, project_id, location, survey_type, x_AEP10TM,
                 y_AEP10TM, survey_duration_method, survey_distance_method, 
                 max_dist_band, hssr, ordinalDay, year, BTNW, BBWA, TEWA)
-
-# Filter bird_data to only include species of interest
-#bd_filt_1 <- bird_data %>%
-#  dplyr::select(project, project_id, survey_type, location, x_AEP10TM,
-#                y_AEP10TM, survey_duration_method, survey_distance_method, 
-#                survey_effort, year, BTNW, BBWA, TEWA)
-
 
 
 # Filter bird data to only include LULC and NTEMS sites 
@@ -68,17 +62,19 @@ NTEMS_unique_loc$location <- as.character(NTEMS_unique_loc$location)
 NTEMS_combined <- left_join(bird_data_2009, NTEMS_unique_loc, by = "location")
 
 # Check for discrepancies between coordinates in each df
-NTEMS_mismatch <- NTEMS_combined %>%
-  mutate(x_coordinates_match = ifelse(x_AEP10TM.x != x_AEP10TM.y, "Mismatch", "Match"))
-NTEMS_mismatch_df <- NTEMS_mismatch %>% filter(x_coordinates_match == "Mismatch")
+NTEMS_mismatch_df <- NTEMS_combined %>%
+  mutate(x_ok = near(x_AEP10TM.x, x_AEP10TM.y),
+         y_ok = near(y_AEP10TM.x, y_AEP10TM.y)) %>%
+  filter(!(x_ok & y_ok)) %>%
+  dplyr::select(location, x_AEP10TM.x, x_AEP10TM.y, y_AEP10TM.x, y_AEP10TM.y)
+
 
 # Clean df to only include columns of interest
 
 NTEMS_combined <- NTEMS_combined %>%
   dplyr::select(project, location, survey_type, year.x, ordinalDay, hssr,  
          survey_duration_method, max_dist_band, x_AEP10TM.x, y_AEP10TM.x, prop_con_1, 
-         prop_con_2, prop_con_3, prop_dec_1, prop_dec_2, prop_dec_3, clumpy_1, clumpy_2, 
-         clumpy_3, age_mn_1, age_mn_2, age_mn_3,
+         prop_con_2, prop_con_3, clumpy_1, clumpy_2, clumpy_3, age_mn_1, age_mn_2, age_mn_3,
          BBWA, BTNW, TEWA) %>%
   rename(year = year.x, x_AEP10TM = x_AEP10TM.x, y_AEP10TM = y_AEP10TM.x)
 
@@ -112,9 +108,12 @@ NTEMS_combined_age_corr <- NTEMS_combined %>%
     age_mn_3 = age_mn_3 - (2019 - year)
   )
 
-# Remove rows where there are NA values in any column
+# Drop any row with NA anywhere, then drop any row with negative ages
 NTEMS_final <- NTEMS_combined_age_corr %>%
-  drop_na()
+  drop_na() %>%                                # remove rows with any NA in any column
+  filter(age_mn_1 >= 0,                        # keep only non-negative ages
+         age_mn_2 >= 0,
+         age_mn_3 >= 0)
 
 length(unique(NTEMS_final$location))
 
@@ -134,17 +133,18 @@ LULC_unique_loc$location <- as.character(LULC_unique_loc$location)
 LULC_combined <- left_join(bird_data_2009, LULC_unique_loc, by = "location")
 
 # Check for discrepancies between coordinates in each df
-LULC_mismatch <- LULC_combined %>%
-  mutate(x_coordinates_match = ifelse(x_AEP10TM.x != x_AEP10TM.y, "Mismatch", "Match"))
-LULC_mismatch_df <- LULC_mismatch %>% filter(x_coordinates_match == "Mismatch")
+LULC_mismatch_df <- LULC_combined %>%
+  mutate(x_ok = near(x_AEP10TM.x, x_AEP10TM.y),
+         y_ok = near(y_AEP10TM.x, y_AEP10TM.y)) %>%
+  filter(!(x_ok & y_ok)) %>%
+  dplyr::select(location, x_AEP10TM.x, x_AEP10TM.y, y_AEP10TM.x, y_AEP10TM.y)
 
 # Clean df to only include columns of interest
 
 LULC_combined <- LULC_combined %>%
   dplyr::select(project, location, survey_type, year.x, ordinalDay, hssr,  
                 survey_duration_method, max_dist_band, x_AEP10TM.x, y_AEP10TM.x, prop_con_1, 
-                prop_con_2, prop_con_3, prop_dec_1, prop_dec_2, prop_dec_3, clumpy_1, clumpy_2, 
-                clumpy_3, age_mn_1, age_mn_2, age_mn_3,
+                prop_con_2, prop_con_3, clumpy_1, clumpy_2, clumpy_3,
                 BBWA, BTNW, TEWA) %>%
   rename(year = year.x, x_AEP10TM = x_AEP10TM.x, y_AEP10TM = y_AEP10TM.x)
 
@@ -166,17 +166,8 @@ LULC_combined$survey_effort <- sapply(strsplit(as.character(LULC_combined$survey
 # Remove cleaned column
 LULC_combined$survey_duration_method_clean <- NULL
 
-
-### Adjust forest age based on the difference from 2019
-LULC_combined_age_corr <- LULC_combined %>%
-  mutate(
-    age_mn_1 = age_mn_1 - (2019 - year),
-    age_mn_2 = age_mn_2 - (2019 - year),
-    age_mn_3 = age_mn_3 - (2019 - year)
-  )
-
 # Remove rows where there are NA values in any column
-LULC_final <- LULC_combined_age_corr %>%
+LULC_final <- LULC_combined %>%
   drop_na()
 
 
@@ -205,17 +196,104 @@ LULC_final_2 <- LULC_final_2 %>%
 
 # Save NTEMS and LULC dfs
 
-write.csv(NTEMS_final_2, "Output/Tabular Data/NTEMS_with_bird_data.csv")
-write.csv(LULC_final_2, "Output/Tabular Data/LULC_with_bird_data.csv")
+write.csv(NTEMS_final_2, "Output/Tabular Data/NTEMS_with_bird_data_5m.csv")
+write.csv(LULC_final_2, "Output/Tabular Data/LULC_with_bird_data_5m.csv")
 
 
 
 
 
 
+############### Next, combine LULC and NTEMS dataframes
+
+# Load data
+NTEMS <- read.csv("Output/Tabular Data/NTEMS_with_bird_data_5m.csv")
+LULC  <- read.csv("Output/Tabular Data/LULC_with_bird_data_5m.csv")
+
+### Merge prop_con_, clumpy_, and age_mn_ from LULC to NTEMS
+
+# Remove the 'X'columns from both NTEMS and LULC before renaming
+NTEMS_cleaned <- NTEMS %>% dplyr::select(-c(X))
+LULC_cleaned <- LULC %>% dplyr::select(-c(X))
+
+# Rename _1, _2, and _3 to _150, _500, and _1000
+scale_suffix_map <- c("_1" = "_150", "_2" = "_500", "_3" = "_1000")
+
+rename_scale_suffixes <- function(names) {
+  for (old in names(scale_suffix_map)) {
+    names <- gsub(old, scale_suffix_map[[old]], names)
+  }
+  names
+}
+
+prefixes <- c("prop_con_", "clumpy_", "age_mn_")
+
+NTEMS_converted <- NTEMS_cleaned %>%
+  rename_with(rename_scale_suffixes, .cols = matches(paste0("^(", paste(prefixes, collapse = "|"), ")")))
+
+LULC_converted <- LULC_cleaned %>%
+  rename_with(rename_scale_suffixes, .cols = matches(paste0("^(", paste(prefixes, collapse = "|"), ")")))
+
+NTEMS_renamed <- NTEMS_converted %>%
+  rename_with(.cols = starts_with("prop_con_"), ~ paste0(., "_NTEMS")) %>%
+  rename_with(.cols = starts_with("clumpy_"), ~ paste0(., "_NTEMS")) %>%
+  rename_with(.cols = starts_with("age_mn_"), ~ paste0(., "_NTEMS"))
+
+LULC_renamed <- LULC_converted %>%
+  rename_with(.cols = starts_with("prop_con_"), ~ paste0(., "_LULC")) %>%
+  rename_with(.cols = starts_with("clumpy_"), ~ paste0(., "_LULC"))
+
+# Join the renamed data frames
+joined_data <- left_join(NTEMS_renamed, LULC_renamed,
+                         by = c("project", "location", "survey_type", "year", "ordinalDay",
+                                "survey_duration_method", "max_dist_band"),
+                         suffix = c(".x", ".y"))
+
+# Check for mismatches before dropping columns
+check_match <- function(df) {
+  cols_to_check <- names(NTEMS_renamed)[!names(NTEMS_renamed) %in% c(
+    "prop_con_1_NTEMS", "prop_con_2_NTEMS", "prop_con_3_NTEMS",
+    "prop_dec_1_NTEMS", "prop_dec_2_NTEMS", "prop_dec_3_NTEMS",
+    "clumpy_1_NTEMS", "clumpy_2_NTEMS", "clumpy_3_NTEMS",
+    "age_mn_1_NTEMS", "age_mn_2_NTEMS", "age_mn_3_NTEMS"
+  )]
+  
+  for (col in cols_to_check) {
+    col_x <- paste0(col, ".x")
+    col_y <- paste0(col, ".y")
+    
+    if (col_y %in% names(df)) {
+      if (!all(df[[col_x]] == df[[col_y]], na.rm = TRUE)) {
+        warning(paste("Mismatch found in column:", col))
+        return(FALSE)
+      }
+    }
+  }
+  return(TRUE)
+}
+
+# Add back species columns when reorganizing
+species_cols <- c("BTNW", "TEWA", "BBWA") 
+
+if (check_match(joined_data)) {
+  joined_data <- joined_data %>%
+    dplyr::select(-ends_with(".y"), -starts_with("prop_dec_")) %>%
+    rename_with(~ gsub("\\.x$", "", .))
+  
+  joined_data <- joined_data %>%
+    dplyr::select(
+      project, location, survey_type, year, ordinalDay, hssr, survey_effort,  # <- added
+      survey_duration_method, max_dist_band, x_AEP10TM, y_AEP10TM,
+      all_of(species_cols),
+      starts_with("prop_con_"), starts_with("clumpy_"), starts_with("age_mn_")
+    )
+  
+  
+  print("Join and replacement successful.")
+} else {
+  print("Mismatches found. Join and replacement aborted.")
+}
 
 
-
-
-
-
+# Save
+write.csv(joined_data, "Output/Tabular Data/joined_data_5m.csv", row.names = FALSE)

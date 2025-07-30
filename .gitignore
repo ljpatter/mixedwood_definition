@@ -2,3 +2,14 @@
 .Rhistory
 .RData
 .Ruserdata
+.RDataTmp
+.RDataTmp1
+.RDataTmp2
+.RDataTmp3
+.RDataTmp4
+.RDataTmp5
+Input/
+Output/
+Figures/
+Chapter 1_graphics/
+PDP/
