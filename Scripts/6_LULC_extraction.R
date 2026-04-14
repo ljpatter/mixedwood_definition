@@ -1,4 +1,19 @@
+# ---
+# title: "LULC_data_extraction"
+# author: "Leonard Patterson"
+# created: "2025-04-11"
+# description: "This script resamples LULC raster from 10m res 
+# to 5 m resolution, then extracts habitat covariates from resampled raster, 
+# LULC 10m landcover raster can be downloaded here: https://ags.aer.ca/publications/all-publications/dig-2021-0019
+# ---
+
+# Load libraries
+
+library(sf)
+library(dplyr)
+library(tidyr)
 library(terra)
+library(landscapemetrics)  
 library(raster)
 
 # --- Input (10 m classes, 9=conifer, 11=mixedwood) ---
@@ -10,6 +25,12 @@ LULC_5m <- disagg(LULC_10m, fact = 2)
 # --- Output target ---
 out_path <- "Output/Spatial Data/Reprojected LULC/Conifer_AB_LULC_2020_5m_reclass_mixedwood_split.tif"
 out <- rast(LULC_5m)  # same grid as LULC_5m
+
+
+### Below is code that reclassifies all non-conifer pixels as 0,
+### all conifer pixels as 1, and reclassfies mixedwood pixels as randomly 
+### deciduous or conifer. Refer to Patterson et al. (2026) for full explanation
+### of mixedwood reclassification.
 
 # --- Block sizing via raster::blockSize() wrapper ---
 r_compat <- raster::raster(LULC_5m)
@@ -77,25 +98,7 @@ terra::freq(conifer_5m)                         # counts of 0/1 (excludes NA)
 
 
 
-
-
-
-
-
-
-
-
-
-
 ############# Calculate proportion conifer 
-
-# Load libraries
-library(sf)
-library(dplyr)
-library(tidyr)
-library(terra)
-library(landscapemetrics)  
-library(raster)
 
 # Load point count location from NTEMS
 AB_point_counts_sf <- st_read("Output/Spatial Data/AB_point_counts/point_count_locs_NTEMS.shp")

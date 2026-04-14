@@ -1,5 +1,5 @@
 # ---
-# title: "BRT model w/ random mixedwood 5m"
+# title: "BRT model w/ random mixedwood"
 # author: "Leonard Patterson"
 # created: "2025-09-01"
 # description: This script runs boosted regression model with boostrapping and associated plots and diagnostics
@@ -24,7 +24,6 @@ library(ggplot2)
 library(stringr)
 library(readr)
 library(doParallel)
-library(doRNG)
 library(foreach)
 library(tidyr)
 library(viridis)
@@ -33,14 +32,10 @@ library(tibble)
 library(terra)
 library(dplyr)
 library(landscapemetrics)
-library(patchwork)
-library(ggh4x)
-library(scales)
-library(grid)
-
+library(patchwork)        
 
 # Load data
-joined_data <- read.csv("Output/Tabular Data/joined_data_5m.csv")
+joined_data <- read.csv("Output/Tabular Data/joined_data_NEW.csv")
 
 # Load study area
 study_area <- st_read("Input/Spatial Data/Study Area/study_area.shp")
@@ -87,7 +82,6 @@ final_model_list <- list()
 cores_to_use <- 10
 cl <- makeCluster(cores_to_use)
 registerDoParallel(cl)
-registerDoRNG(123)
 
 # === Offsets (QPAD/BAM) ===
 load_BAM_QPAD(version = 2)
@@ -119,7 +113,7 @@ calculate_offsets <- function(data, species_code) {
   bind_rows(interaction_list)
 }
 
-# PDP helpers
+# Knight-style PDP helpers
 nuisance_vars <- c("year","x_AEP10TM","y_AEP10TM")
 
 fit_gam_pdp <- function(df, n = 300) {
@@ -142,7 +136,7 @@ if (!dir.exists(pdp_dir)) dir.create(pdp_dir, recursive = TRUE)
 
 # === BOOTSTRAPPED BRT LOOP ===
 set.seed(123)
-n_boot <- 100
+n_boot <- 25
 
 for (sp in species_list) {
   cat("\n\n=== Species:", sp, "===\n")
@@ -177,9 +171,10 @@ for (sp in species_list) {
     stopifnot(is.factor(sampled_data$year))
     
     # ---- BLOCKED CV FOLDS (NO LEAKAGE) ------------------------------------
-    uniq_blocks <- sort(unique(as.character(sp_subset@data$block_id)))
+    uniq_blocks <- unique(sp_subset@data$block_id)
     k_folds     <- min(10L, length(uniq_blocks))
-    fold_map    <- setNames(((seq_along(uniq_blocks)-1L) %% k_folds) + 1L, uniq_blocks)
+    fold_labels <- rep(seq_len(k_folds), length.out = length(uniq_blocks))
+    fold_map    <- setNames(sample(fold_labels), as.character(uniq_blocks))
     folds       <- as.integer(fold_map[as.character(sp_subset@data$block_id)])
     
     # ---- FIT ---------------------------------------------------------------
@@ -210,7 +205,7 @@ for (sp in species_list) {
     
     model_data <- sampled_data %>%
       dplyr::select(all_of(brt_model$gbm.call$predictor.names)) %>%
-      dplyr::mutate(dplyr::across(where(is.numeric), ~ tidyr::replace_na(., 0)))
+      mutate(across(everything(), ~tidyr::replace_na(., 0)))
     
     interaction_df <- .gbm.interactions_full(brt_model, model_data)
     interaction_df$Boot <- i
@@ -283,13 +278,12 @@ for (sp in species_list) {
   )
   stopifnot(is.factor(model_data$year))
   
-  # ---- BLOCKED CV ON FULL DATA (DETERMINISTIC) ----
-  # For full-data CV
-  uniq_blocks_full <- sort(unique(as.character(joined_sp@data$block_id)))
+  # Blocked folds for full-data CV
+  uniq_blocks_full <- unique(joined_sp@data$block_id)
   k_folds_full     <- min(10L, length(uniq_blocks_full))
-  fold_map_full    <- setNames(((seq_along(uniq_blocks_full)-1L) %% k_folds_full) + 1L, uniq_blocks_full)
+  fold_labels_full <- rep(seq_len(k_folds_full), length.out = length(uniq_blocks_full))
+  fold_map_full    <- setNames(sample(fold_labels_full), as.character(uniq_blocks_full))
   folds_full       <- as.integer(fold_map_full[as.character(joined_sp@data$block_id)])
-  
   
   final_model <- gbm.step(
     data             = model_data,
@@ -317,20 +311,10 @@ stopCluster(cl)
 imp_df <- bind_rows(results_list)
 friedman_df <- bind_rows(friedmanH_list)
 
-imp_table <- imp_df %>%
-  dplyr::mutate(var_type = dplyr::case_when(
-    stringr::str_starts(Feature, "prop_con") ~ "prop_con",
-    stringr::str_starts(Feature, "clumpy")   ~ "clumpy",
-    stringr::str_starts(Feature, "age_mn")   ~ "age_mn",
-    TRUE ~ "other"
-  ))
-dir.create("Output/Tabular Data", recursive = TRUE, showWarnings = FALSE)
-
-saveRDS(results_list, "Output/Tabular Data/results_list_final_parallel_poisson_5m.rds")
-saveRDS(imp_df, "Output/Tabular Data/imp_df_final_parallel_poisson_5m.rds")
-saveRDS(friedman_df, "Output/Tabular Data/friedman_interactions_bootstrapped_parallel_final_poisson_5m.rds")
-saveRDS(final_model_list, "Output/Tabular Data/final_model_list_parallel_poisson_5m.rds")
-saveRDS(imp_table, file.path(pdp_dir, "imp_table_5m.rds"))
+saveRDS(results_list, "Output/Tabular Data/results_list_final_parallel_poisson.rds")
+saveRDS(imp_df, "Output/Tabular Data/imp_df_final_parallel_poisson.rds")
+saveRDS(friedman_df, "Output/Tabular Data/friedman_interactions_bootstrapped_parallel_final_poisson.rds")
+saveRDS(final_model_list, "Output/Tabular Data/final_model_list_parallel_poisson.rds")
 
 cat("\n✅ Saved all model outputs for Poisson models with year as FACTOR!\n")
 
@@ -348,10 +332,25 @@ cat("\n✅ Saved all model outputs for Poisson models with year as FACTOR!\n")
 
 
 
+########### GAM PDPs
+
+
 # ============================
 # GAM-PDPs at Scale of Effect
 # ============================
 
+# Run this AFTER your modeling script has saved:
+#   - "Output/Tabular Data/pdp_bootstrap_raw_<Species>.rds"
+#   - "Output/Tabular Data/imp_table.rds"  (optional)
+#   - "Output/Tabular Data/imp_df_final_parallel_poisson.rds" (fallback)
+# ============================
+# GAM-PDPs at Scale of Effect
+# ============================
+
+# Run this AFTER your modeling script has saved:
+#   - "Output/Tabular Data/pdp_bootstrap_raw_<Species>.rds"
+#   - "Output/Tabular Data/imp_table.rds"  (optional)
+#   - "Output/Tabular Data/imp_df_final_parallel_poisson.rds" (fallback)
 
 suppressPackageStartupMessages({
   library(dplyr)
@@ -366,8 +365,8 @@ suppressPackageStartupMessages({
 
 # --- Locations ---
 pdp_dir           <- "Output/Tabular Data"
-imp_table_path    <- file.path("Output/Tabular Data", "imp_table_5m.rds")
-imp_fallback_path <- file.path("Output/Tabular Data", "imp_df_final_parallel_poisson_5m.rds")
+imp_table_path    <- file.path("Output/Tabular Data", "imp_table.rds")
+imp_fallback_path <- file.path("Output/Tabular Data", "imp_df_final_parallel_poisson.rds")
 
 # --- Options ---
 n_points      <- 300    # x-grid resolution for smooth curves
@@ -375,8 +374,8 @@ trim_prop     <- 0.01   # trim 1% tails to avoid edge wiggles
 nuisance_vars <- c("year","x_AEP10TM","y_AEP10TM")
 
 # --- Outputs ---
-out_tab_dir <- "Output/Tables/GAM_PDP_SoE_5m"
-out_fig_dir <- "Output/Figures/GAM_PDP_SoE_5m"
+out_tab_dir <- "Output/Tables/GAM_PDP_SoE"
+out_fig_dir <- "Output/Figures/GAM_PDP_SoE"
 dir.create(out_tab_dir, recursive = TRUE, showWarnings = FALSE)
 dir.create(out_fig_dir, recursive = TRUE, showWarnings = FALSE)
 
@@ -582,318 +581,242 @@ invisible(all_plots)
 
 
 
-
-
-
-
-
-
-
-
-
-######## Plot PDP in single window
-
-# ---- One-frame overview with per-panel y-scaling: rows = Species; cols = prop_con | clumpy | age ----
-
-# Rebuild the long table if needed (from the CSVs you just wrote)
-if (!exists("all_tabs") || length(all_tabs) == 0) {
-  csvs <- list.files(out_tab_dir, pattern = "^GAM_PDP_SoE_.*\\.csv$", full.names = TRUE)
-  if (length(csvs) == 0) stop("No per-predictor CSVs found in: ", out_tab_dir)
-  all_tabs_df <- purrr::map_dfr(csvs, readr::read_csv, show_col_types = FALSE)
-} else {
-  all_tabs_df <- dplyr::bind_rows(all_tabs)
-}
-
-order_cols <- c("prop_con","clumpy","age")
-order_species <- c("BTNW","TEWA","BBWA")   # desired top-to-bottom order
-
-all_tabs_df <- all_tabs_df %>%
-  dplyr::mutate(
-    var_col = dplyr::recode(var_type_from_name(var),
-                            "prop_con" = "prop_con",
-                            "clumpy"   = "clumpy",
-                            "age_mn"   = "age",
-                            .default   = NA_character_),
-    var_col = factor(var_col, levels = order_cols)
-  ) %>%
-  dplyr::filter(!is.na(var_col), var_col %in% order_cols) %>%
-  # Apply factor order only to species that actually exist in the data
-  dplyr::mutate(Species = factor(Species,
-                                 levels = intersect(order_species,
-                                                    unique(Species))))
-
-# --- Build per-panel labels from SoE + MeanGain (as before) ---
-imp_table_path    <- file.path("Output/Tabular Data", "imp_table_5.rds")
-imp_fallback_path <- file.path("Output/Tabular Data", "imp_df_final_parallel_poisson_5m.rds")
-
-var_type_from_name <- function(v) dplyr::case_when(
-  stringr::str_starts(v, "prop_con") ~ "prop_con",
-  stringr::str_starts(v, "clumpy")   ~ "clumpy",
-  stringr::str_starts(v, "age_mn")   ~ "age_mn",
-  TRUE ~ "other"
-)
-
-if (exists("imp_table") && is.data.frame(imp_table)) {
-  imp_use <- imp_table
-} else if (file.exists(imp_table_path)) {
-  imp_use <- readRDS(imp_table_path)
-} else {
-  imp_use <- readRDS(imp_fallback_path) |>
-    dplyr::mutate(var_type = var_type_from_name(Feature)) |>
-    dplyr::filter(var_type %in% c("prop_con","clumpy","age_mn"))
-}
-
-soe_tbl <- imp_use |>
-  dplyr::filter(var_type %in% c("prop_con","clumpy","age_mn")) |>
-  dplyr::group_by(Species, var_type) |>
-  dplyr::slice_max(MeanGain, n = 1, with_ties = FALSE) |>
-  dplyr::ungroup() |>
-  dplyr::transmute(
-    Species,
-    var_col = dplyr::recode(var_type,
-                            "prop_con" = "prop_con",
-                            "clumpy"   = "clumpy",
-                            "age_mn"   = "age"),
-    panel_label = sprintf("%s (%.1f%%)", Feature, MeanGain)
-  )
-
-# --- X midpoints for centering text above each panel ---
-x_mids <- all_tabs_df |>
-  dplyr::group_by(Species, var_col) |>
-  dplyr::summarise(x_mid = mean(range(x, na.rm = TRUE)), .groups = "drop")
-
-label_df <- dplyr::inner_join(soe_tbl, x_mids, by = c("Species","var_col"))
-
-# --- Factor orders (same as before) ---
-order_cols    <- c("prop_con","clumpy","age")
-order_species <- c("BTNW","TEWA","BBWA")
-
-all_tabs_df <- all_tabs_df |>
-  dplyr::mutate(
-    var_col  = factor(var_col, levels = order_cols),
-    Species  = factor(Species, levels = intersect(order_species, unique(Species)))
-  )
-
-label_df <- label_df |>
-  dplyr::mutate(
-    var_col = factor(var_col, levels = order_cols),
-    Species = factor(Species, levels = levels(all_tabs_df$Species))
-  )
-
-p_all <- ggplot(all_tabs_df, aes(x = x, y = fit)) +
-  geom_ribbon(aes(ymin = lwr, ymax = upr), alpha = 0.25) +
-  geom_line() +
-  # ensure ~5 y-axis ticks in each facet (even with free scales)
-  scale_y_continuous(breaks = breaks_extended(n = 5)) +  # <-- added '+' here
-  geom_text(
-    data = label_df,
-    aes(x = x_mid, y = Inf, label = panel_label),
-    inherit.aes = FALSE,
-    vjust = -0.55,
-    fontface = "bold",
-    size = 3.6
-  ) +
-  ggh4x::facet_grid2(
-    rows = vars(Species),
-    cols = vars(var_col),
-    scales = "free",
-    independent = "all"
-  ) +
-  labs(x = "Predictor value", y = "Expected count") +
-  coord_cartesian(clip = "off") +
-  theme_minimal(base_size = 13) +
-  theme(
-    panel.grid = element_blank(),
-    panel.border = element_rect(colour = "grey30", fill = NA, linewidth = 0.6),
-    strip.text.x = element_blank(),
-    strip.background.x = element_blank(),
-    strip.background.y = element_rect(colour = "grey30", fill = "grey95"),
-    panel.spacing.y = unit(24, "pt"),
-    plot.margin = margin(t = 24, r = 10, b = 10, l = 10),
-    plot.title = element_blank()
-  )
-
-print(p_all)
-ggsave(file.path(out_fig_dir, "GAM_PDP_SoE__combined_grid_freeY_5m.png"),
-       p_all, width = 12,
-       height = 4 * length(unique(all_tabs_df$Species)), dpi = 300)
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 ##################### Poisson BRT Variable Importance Analysis #####################
 
-suppressPackageStartupMessages({
-  library(dplyr)
-  library(stringr)
-  library(forcats)
-  library(ggplot2)
-  library(ggtext)
-  library(cowplot)  
-})
 
-# --- Load variable importance results ---
-imp_df <- readRDS("Output/Tabular Data/imp_df_final_parallel_poisson_5m.rds")
+# === Load model object to verify 'year' as factor ===
+final_model_list <- readRDS("Output/Tabular Data/final_model_list_parallel_poisson.rds")
 
-# --- Config ---
-nuisance_vars <- c("year","x_AEP10TM","y_AEP10TM")
-fill_map <- c("prop_con" = "forestgreen",
-              "clumpy"   = "cornflowerblue",
-              "age_mn"   = "lightcoral")
-var_order     <- c("prop_con","clumpy","age_mn")
-species_order <- c("BTNW","TEWA","BBWA")   # set order as desired
+for (sp in names(final_model_list)) {
+  cat(paste0("\n🔍 Checking model for: ", sp, "\n"))
+  model_data <- final_model_list[[sp]]$gbm.call$dataframe
+  if (!"year" %in% names(model_data)) {
+    stop(paste0("❌ ERROR: 'year' not found in model data for ", sp))
+  }
+  if (!is.factor(model_data$year)) {
+    stop(paste0("❌ ERROR: 'year' is NOT a factor for ", sp))
+  }
+  cat("✅ 'year' is included and treated as a FACTOR.\n")
+}
 
-# --- Clean & classify ---
+# === Load variable importance results ===
+imp_df <- readRDS("Output/Tabular Data/imp_df_final_parallel_poisson.rds")
+
+# === Nuisance variables to exclude ===
+nuisance_vars <- c("year", "x_AEP10TM", "y_AEP10TM")
+
+# === Color map and ordering ===
+fill_map <- c(
+  "prop_con" = "forestgreen",
+  "clumpy"   = "cornflowerblue",
+  "age_mn"   = "lightcoral"
+)
+var_order <- c("prop_con", "clumpy", "age_mn")
+
+# === Clean, classify, and round ===
 imp_df_clean <- imp_df %>%
   filter(!Feature %in% nuisance_vars) %>%
-  # drop LULC age terms if undesired; comment out next line to keep them
   filter(!grepl("^age_mn_\\d+_LULC$", Feature)) %>%
   mutate(
     var_type = case_when(
-      str_detect(Feature, "^prop_con") ~ "prop_con",
-      str_detect(Feature, "^clumpy")   ~ "clumpy",
-      str_detect(Feature, "^age_mn")   ~ "age_mn",
-      TRUE                             ~ "other"
+      str_detect(Feature, "prop_con") ~ "prop_con",
+      str_detect(Feature, "clumpy")   ~ "clumpy",
+      str_detect(Feature, "age_mn")   ~ "age_mn",
+      TRUE                            ~ "other"
     ),
-    var_type = factor(var_type, levels = var_order),
-    Species  = factor(Species, levels = intersect(species_order, unique(Species)))
-  ) %>% 
-  filter(!is.na(var_type), !is.na(Species))
+    var_type = factor(var_type, levels = var_order)
+  )
 
-# --- Fixed x axis across all panels ---
-x_max    <- 25
-x_breaks <- seq(0, x_max, by = 5)
+# === Print Variable Importance Tables ===
+imp_table <- imp_df_clean %>%
+  arrange(Species, desc(MeanGain)) %>%
+  mutate(MeanGain = round(MeanGain, 2))
 
-# --- One-species plot (grouped vertically by var_type; left group labels hidden) ---
-make_vi_plot <- function(df_sp, show_bottom_title = FALSE) {
-  df_sp <- df_sp %>%
+cat("\n🔎 Variable Importance Table by Species:\n")
+print(imp_table, n = Inf)
+
+species_list <- unique(imp_table$Species)
+
+for (sp in species_list) {
+  cat(paste0("\n=== Variable Importance for ", sp, " ===\n"))
+  print(imp_table %>% filter(Species == sp), n = Inf)
+}
+
+# === Plot VI per species ===
+max_gain <- ceiling(max(imp_df_clean$MeanGain, na.rm = TRUE) / 5) * 5
+
+for (sp in species_list) {
+  df_sp <- imp_df_clean %>%
+    filter(Species == sp) %>%
     group_by(var_type) %>%
     arrange(desc(MeanGain), .by_group = TRUE) %>%
-    mutate(is_top = row_number() == 1L) %>%           # top per var_type
     ungroup() %>%
-    mutate(
-      Feature       = fct_rev(fct_inorder(Feature)),  # keep order for coord_flip
-      Feature_label = ifelse(is_top, paste0("**", as.character(Feature), "**"),
-                             as.character(Feature))
-    )
+    mutate(Feature = factor(Feature, levels = rev(Feature)))
   
-  lab_map <- setNames(df_sp$Feature_label, df_sp$Feature)
+  if (nrow(df_sp) == 0) {
+    cat(paste0("⚠️ No variables found for ", sp, ". Skipping plot.\n"))
+    next
+  }
   
-  ggplot(df_sp, aes(x = Feature, y = MeanGain, fill = var_type)) +
+  p <- ggplot(df_sp, aes(x = Feature, y = MeanGain, fill = var_type)) +
     geom_col(color = "black", width = 0.8) +
     scale_fill_manual(
-      values = fill_map, drop = FALSE,
-      name = "Predictor type",
-      labels = c("prop_con" = "Proportion conifer",
-                 "clumpy"   = "Clumpiness",
-                 "age_mn"   = "Forest age")
+      values = fill_map,
+      drop = FALSE,
+      name = "Predictor Type",
+      labels = c(
+        "prop_con" = "Proportion Conifer",
+        "clumpy" = "Clumpiness",
+        "age_mn" = "Forest Age"
+      )
     ) +
-    scale_y_continuous(limits = c(0, x_max),
-                       breaks = x_breaks,
-                       expand = expansion(mult = c(0, 0.06))) +
-    scale_x_discrete(labels = lab_map) +
+    scale_y_continuous(limits = c(0, max_gain)) +
     coord_flip() +
-    facet_grid(var_type ~ ., scales = "free_y", space = "free_y") +
     labs(
-      x = NULL,                                            # global left label added later
-      y = if (show_bottom_title) "Mean relative influence" else NULL
+      title = paste0(sp, " (Poisson BRT)"),
+      x = "Predictor Variable",
+      y = "Mean Relative Influence"
     ) +
     theme_minimal(base_size = 14) +
     theme(
-      # remove vertical grid lines (after coord_flip these are x-grid)
-      panel.grid.major.x = element_blank(),
-      panel.grid.minor.x = element_blank(),
-      # remove horizontal grid lines too (clean look)
-      panel.grid.major.y = element_blank(),
-      panel.grid.minor.y = element_blank(),
-      
-      axis.text          = element_text(color = "black"),
-      axis.text.y        = ggtext::element_markdown(hjust = 1, size = 11),
-      axis.title.y       = element_text(margin = margin(r = 10)),
-      # hide left facet (group) labels
-      strip.text.y       = element_blank(),
-      strip.background   = element_blank(),
-      # legend kept only on one plot (extracted below)
-      legend.position    = "right",
-      legend.title       = element_text(face = "bold"),
-      plot.title         = element_blank()
+      panel.grid = element_blank(),
+      axis.text = element_text(color = "black"),
+      axis.text.y = element_text(hjust = 1, size = 11),
+      plot.title = element_text(face = "bold", hjust = 0.5),
+      axis.title.x = element_text(margin = margin(t = 10)),
+      axis.title.y = element_text(margin = margin(r = 10)),
+      legend.position = "right"  # ✅ Show legend here
     )
+  
+  print(p)  # ✅ This line ensures the plot actually renders
 }
 
-# --- Build species panels (only bottom shows horizontal axis title) ---
-species_levels <- levels(imp_df_clean$Species)
-plots_with_legend <- lapply(seq_along(species_levels), function(i) {
-  sp <- species_levels[i]
-  make_vi_plot(filter(imp_df_clean, Species == sp),
-               show_bottom_title = (i == length(species_levels)))
-})
-names(plots_with_legend) <- species_levels
 
-# --- Extract legend from the first plot, then remove from panels ---
-legend_g <- cowplot::get_legend(plots_with_legend[[1]])
-plots <- lapply(plots_with_legend, function(p) p + theme(legend.position = "none"))
 
-# --- Add a)/b)/c) as a small tag above each species panel ---
-tag_strip <- function(lbl) {
-  ggplot() +
-    annotate("text", x = 0.01, y = 0.5, label = lbl,
-             hjust = 0, vjust = 0.5, size = 6, fontface = "bold") +
-    theme_void() + theme(plot.margin = margin(b = 0))
+
+
+
+
+
+
+
+######### PDP ON RAW SCALE
+
+# === FULL PDPs ON RAW SCALE, CENTERED ===
+
+# Load saved objects
+results_list <- readRDS("Output/Tabular Data/results_list_final_parallel_poisson.rds")
+final_model_list <- readRDS("Output/Tabular Data/final_model_list_parallel_poisson.rds")
+
+# Define nuisance variables to exclude
+nuisance_vars <- c("x_AEP10TM", "y_AEP10TM", "year")
+
+# Loop through each species
+for (sp in names(final_model_list)) {
+  cat("\n=== PDPs for", sp, "===\n")
+  
+  model <- final_model_list[[sp]]
+  var_importance <- results_list[[sp]]
+  
+  # 🔒 Check that year is in model and is a factor
+  if ("year" %in% names(model$gbm.call$dataframe)) {
+    is_factor <- is.factor(model$gbm.call$dataframe$year)
+    cat("✅ 'year' is present and is.factor(year) =", is_factor, "\n")
+    stopifnot(is_factor)
+  } else {
+    warning("'year' is not in the model data — skipping check")
+  }
+  
+  # Get all predictor names used in the final model (excluding nuisance)
+  valid_vars <- model$gbm.call$predictor.names
+  valid_vars <- valid_vars[!valid_vars %in% nuisance_vars]
+  
+  for (var in valid_vars) {
+    # Safely generate PDP
+    pd <- try(gbm::plot.gbm(model, i.var = var, return.grid = TRUE), silent = TRUE)
+    
+    if (inherits(pd, "try-error") || !("y" %in% names(pd)) || all(is.na(pd$y))) {
+      message("Skipping variable: ", var, " (could not generate valid PDP)")
+      next
+    }
+    
+    # Back-transform to raw expected count and center
+    pd$y_raw <- exp(pd$y)
+    pd$y_raw_centered <- pd$y_raw / mean(pd$y_raw, na.rm = TRUE)
+    
+    # Extract relative contribution
+    contrib <- var_importance %>%
+      filter(Feature == var) %>%
+      pull(MeanGain) %>%
+      round(1)
+    
+    title_text <- paste0(sp, " - ", var, " (", contrib, "%)")
+    
+    # Plot
+    p <- ggplot(pd, aes_string(x = var, y = "y_raw_centered")) +
+      geom_line(color = "black", linewidth = 1) +
+      geom_hline(yintercept = 1, linetype = "dashed", color = "red") +
+      labs(
+        title = title_text,
+        x = var,
+        y = "Centered Expected Count (raw scale)"
+      ) +
+      theme_minimal(base_size = 14) +
+      theme(
+        panel.grid = element_blank(),
+        plot.title = element_text(face = "bold", hjust = 0.5),
+        axis.title = element_text(size = 14),
+        axis.text = element_text(size = 12)
+      )
+    
+    print(p)
+  }
 }
 
-panels_with_tags <- Map(function(p, taglbl) {
-  cowplot::plot_grid(tag_strip(taglbl), p, ncol = 1,
-                     rel_heights = c(0.08, 0.92), align = "v")
-}, plots, paste0(letters[seq_along(plots)], ")"))
-
-# --- Stack the tagged species panels vertically (right side) ---
-right_stack <- cowplot::plot_grid(plotlist = panels_with_tags, ncol = 1,
-                                  rel_heights = rep(1, length(panels_with_tags)),
-                                  align = "v")
-
-# --- Global left label: "Predictor variables" centered on stack ---
-left_ylabel <- cowplot::ggdraw() +
-  cowplot::draw_label("Predictor variables", angle = 90,
-                      x = 0.5, y = 0.5, size = 14)
-
-main_body <- cowplot::plot_grid(left_ylabel, right_stack, ncol = 2,
-                                rel_widths = c(0.05, 0.95), align = "h")
-
-# --- Top row: put legend on the right; spacer on the left so legend is top-right ---
-top_row <- cowplot::plot_grid(NULL, cowplot::ggdraw(legend_g),
-                              ncol = 2, rel_widths = c(0.70, 0.30), align = "h")
-
-# --- Final assembly ---
-final_plot <- cowplot::plot_grid(top_row, main_body, ncol = 1,
-                                 rel_heights = c(0.12, 0.88), align = "v")
-
-# --- Save ---
-out_fig <- "Output/Figures/VI_all_species_5m_combined.png"
-dir.create(dirname(out_fig), showWarnings = FALSE, recursive = TRUE)
-ggsave(out_fig, final_plot, width = 9, height = 13, dpi = 300)
-message("✅ Saved: ", out_fig)
-
-print(out_fig)
 
 
 
 
 
 
+
+
+
+
+
+################## AUC and model deviance explained
+
+
+# If not already loaded:
+# dev_list <- readRDS("Output/Tabular Data/dev_list_parallel.rds")  # You saved this one
+
+# Summarize deviance explained
+dev_summary <- lapply(names(dev_list), function(sp) {
+  tibble(
+    Species = sp,
+    MeanDeviance = round(mean(dev_list[[sp]], na.rm = TRUE), 2),
+    SDDeviance = round(sd(dev_list[[sp]], na.rm = TRUE), 2)
+  )
+}) %>% bind_rows()
+
+# Summarize AUC (if auc_list is still in memory)
+if (exists("auc_list")) {
+  auc_summary <- lapply(names(auc_list), function(sp) {
+    tibble(
+      Species = sp,
+      MeanAUC = round(mean(auc_list[[sp]], na.rm = TRUE), 3),
+      SDAUC = round(sd(auc_list[[sp]], na.rm = TRUE), 3)
+    )
+  }) %>% bind_rows()
+  
+  # Join both summaries
+  model_summary <- left_join(dev_summary, auc_summary, by = "Species")
+  print(model_summary)
+  
+} else {
+  message("⚠️ 'auc_list' not found in memory. You must rerun the model loop or restore auc_list from memory if saved.")
+  print(dev_summary)
+}
 
 
 
@@ -912,7 +835,7 @@ print(out_fig)
 
 
 # Load interactions
-all_friedman_interactions <- readRDS("Output/Tabular Data/friedman_interactions_bootstrapped_parallel_final_poisson_5m.rds")
+all_friedman_interactions <- readRDS("Output/Tabular Data/friedman_interactions_bootstrapped_parallel_final_poisson.rds")
 
 # Updated whitelist WITHOUT "predictors."
 allowed_pairs <- list(
@@ -949,7 +872,8 @@ top5_filtered <- filtered_df %>%
 # Show the pretty table
 kable(top5_filtered, caption = "Top 10 Friedman H Interactions per Species (Strict Filter)")
 
-write.csv(top5_filtered, "Output/Tabular Data/interactions_table_5m.csv")
+
+write.csv(top5_filtered, "Output/Tabular Data/interactions_table.csv")
 
 
 
@@ -974,7 +898,7 @@ library(dplyr)
 library(stringr)
 
 # 1) Load the final models from your latest run
-fm_path <- "Output/Tabular Data/final_model_list_parallel_poisson_5m.rds"
+fm_path <- "Output/Tabular Data/final_model_list_parallel_poisson.rds"
 if (!file.exists(fm_path)) stop("Can't find: ", fm_path)
 final_model_list <- readRDS(fm_path)
 
@@ -1039,17 +963,17 @@ gbm_perspec_by_name <- function(model, x_var, y_var,
 ## BBWA: prop_con_1_LULC × clumpy_1_LULC
 gbm_perspec_by_name(
   model = final_model_list[["BBWA"]],
-  x_var = "clumpy_150_LULC",
-  y_var = "prop_con_150_LULC",
+  x_var = "clumpy_1_LULC",
+  y_var = "prop_con_1_LULC",
   z_range = NULL,                         # let it auto-scale, or set e.g. c(0, 0.6)
   main = "BBWA: prop_con_1_LULC × clumpy_1_LULC"
 )
 
-## TEWA: clumpy_1000_LULC × prop_con_1000_LULC (adjust if names differ)
+## TEWA: clumpy_1000_NTEMS × prop_con_1000_NTEMS (adjust if names differ)
 gbm_perspec_by_name(
   model = final_model_list[["TEWA"]],
-  x_var = "clumpy_1000_LULC",
-  y_var = "prop_con_1000_LULC",
+  x_var = "prop_con_1000_NTEMS",
+  y_var = "clumpy_1000_NTEMS",
   z_range = NULL,
   main = "TEWA: prop_con_1000_NTEMS × clumpy_1000_NTEMS"
 )
@@ -1058,8 +982,8 @@ gbm_perspec_by_name(
 # For example, choose by looking at list_predictors(final_model_list[["BTNW"]])
 gbm_perspec_by_name(
   model = final_model_list[["BTNW"]],
-  x_var = "clumpy_150_LULC",
-  y_var = "prop_con_150_LULC",
+  x_var = "prop_con_500_NTEMS",
+  y_var = "clumpy_1_LULC",
   z_range = NULL,
   main = "BTNW: prop_con_500_NTEMS × clumpy_1_LULC"
 )
@@ -1071,6 +995,11 @@ gbm_perspec_by_name(
 
 
 
+
+
+
+
+################ Moran's I for Poisson Final Models ################
 
 ################ Moran's I for Poisson BRTs — Average Across Bootstraps ################
 
@@ -1084,50 +1013,7 @@ suppressPackageStartupMessages({
   library(doParallel)
   library(gbm)
   library(dismo)
-  library(QPAD)
-  library(readr)
 })
-
-# ---------------------------
-# -1) QPAD setup + offset helpers
-# ---------------------------
-if (is.null(getOption("BAMversion"))) {
-  load_BAM_QPAD(version = 2)
-}
-
-species_list <- c("BTNW", "TEWA", "BBWA")
-
-species_code_map <- c(
-  "BTNW" = "BTNW",
-  "TEWA" = "TEWA",
-  "BBWA" = "BBWA"
-)
-
-calculate_offsets <- function(df, species_label) {
-  sp_code <- species_code_map[[species_label]]
-  if (is.na(sp_code)) stop("Unknown species label: ", species_label)
-  
-  t_col    <- dplyr::coalesce(df$survey_effort, df$t, df$duration)
-  jday_col <- dplyr::coalesce(df$ordinalDay, df$jday, df$yday)
-  tssr_col <- dplyr::coalesce(df$hssr, df$tssr, rep(NA_real_, nrow(df)))
-  
-  if (is.null(t_col))    stop("No survey effort column found (expected one of: survey_effort, t, duration).")
-  if (is.null(jday_col)) stop("No ordinal day column found (expected one of: ordinalDay, jday, yday).")
-  
-  t_col[!is.finite(t_col)]       <- median(t_col[is.finite(t_col)], na.rm = TRUE)
-  jday_col[!is.finite(jday_col)] <- median(jday_col[is.finite(jday_col)], na.rm = TRUE)
-  if (all(!is.finite(tssr_col))) tssr_col <- rep(0, length(t_col))
-  tssr_col[!is.finite(tssr_col)] <- 0
-  
-  corr <- localBAMcorrections(
-    species = sp_code,
-    t       = t_col,
-    r       = Inf,
-    jday    = jday_col,
-    tssr    = tssr_col
-  )
-  corrections2offset(corr)
-}
 
 # ---------------------------
 # 0) Neighbor graph (once)
@@ -1143,10 +1029,6 @@ has_neighbors <- which(card(nb_all) > 0)
 coords_use <- coords_sp[has_neighbors, , drop = FALSE]
 data_use   <- joined_sp@data[has_neighbors, , drop = FALSE]
 data_use$year <- as.factor(data_use$year)
-
-# >>> inject coordinates as predictors <<<
-data_use$x_AEP10TM <- coords_use[, 1]
-data_use$y_AEP10TM <- coords_use[, 2]
 
 # neighbor weights for the fixed evaluation set
 nb_use <- dnearneigh(coords_use, 0, 30000)
@@ -1171,54 +1053,26 @@ if (!foreach::getDoParRegistered()) {
   cl_mi <- makeCluster(cores_to_use)
   registerDoParallel(cl_mi)
   stop_after <- TRUE
-  
-  # Load needed packages and QPAD on each worker
-  clusterEvalQ(cl_mi, {
-    suppressPackageStartupMessages({
-      library(sp); library(spdep); library(dplyr); library(tidyr)
-      library(gbm); library(dismo); library(QPAD); library(tibble)
-    })
-    if (is.null(getOption("BAMversion"))) load_BAM_QPAD(version = 2)
-    TRUE
-  })
-  
-  # Export helper objects/functions and data to workers
-  clusterExport(cl_mi, c(
-    "joined_sp", "idx_by_block", "block_ids", "K_blocks",
-    "coords_use", "data_use", "lw_use",
-    "species_list", "species_code_map", "calculate_offsets"
-  ), envir = environment())
 }
 
 # ---------------------------
-# 3) Settings
+# 3) Settings (reuse your n_boot / hyperparams)
 # ---------------------------
-n_boot <- 100L  # set to your bootstrap count
+n_boot <- 25L  # set to your bootstrap count
 
 # ---------------------------
 # 4) Core worker: one bootstrap → Moran's I
 # ---------------------------
 compute_moran_one_boot <- function(sp, boot_id) {
-  # Safety: ensure QPAD is loaded on the worker
-  if (is.null(getOption("BAMversion"))) {
-    load_BAM_QPAD(version = 2)
-  }
-  
   # ---- TRUE BLOCK BOOTSTRAP (train set) ----
   boot_blocks <- sample(block_ids, size = K_blocks, replace = TRUE)
   boot_idx    <- unlist(idx_by_block[boot_blocks], use.names = FALSE)
   sp_subset   <- joined_sp[boot_idx, ]
-  
-  # Build training data: take attributes, append coords
-  coords_train <- sp_subset@coords
-  df_train <- sp_subset@data %>%
-    mutate(
-      year      = as.factor(year),
-      x_AEP10TM = coords_train[, 1],
-      y_AEP10TM = coords_train[, 2]
-    )
+  df_train    <- cbind(as.data.frame(sp_subset@coords), sp_subset@data)
+  df_train$year <- as.factor(df_train$year)
   
   # QPAD offset for training subset (species-specific)
+  # (joined_sp@data$offset may be set elsewhere; recompute to be safe)
   df_train$offset <- calculate_offsets(df_train, sp)
   
   # build modeling frame
@@ -1265,35 +1119,28 @@ compute_moran_one_boot <- function(sp, boot_id) {
   if (is.null(brt_model)) return(NA_real_)
   
   # ---- Predict on a FIXED evaluation set (all sites with neighbors) ----
+  # species response & offset for eval set
   y_eval      <- data_use[[sp]]
   offset_eval <- calculate_offsets(data_use, sp)
   
   # predictors required by this bootstrap model
   pred_names <- brt_model$gbm.call$predictor.names
-  
-  # Build eval predictors and ensure any missing columns exist
-  eval_pred <- data_use %>%
-    dplyr::select(any_of(pred_names)) %>%
+  eval_pred  <- data_use %>%
+    dplyr::select(all_of(pred_names)) %>%
     mutate(across(where(is.numeric), ~ tidyr::replace_na(., 0)))
-  
-  # If some predictors are still missing (e.g., rare splits), add zero columns
-  missing_preds <- setdiff(pred_names, names(eval_pred))
-  if (length(missing_preds)) {
-    for (mp in missing_preds) eval_pred[[mp]] <- 0
-    eval_pred <- eval_pred[, pred_names, drop = FALSE]
-  }
   
   # link-scale prediction and mean on response scale (Poisson with offset)
   eta  <- predict(brt_model, eval_pred, n.trees = brt_model$n.trees, type = "link")
   mu   <- exp(eta + offset_eval)
   
-  # residuals (Pearson-like simple)
+  # residuals (Pearson-like)
   resids <- y_eval - mu
   
   # guardrails
   if (!all(is.finite(resids))) {
     ok <- which(is.finite(resids))
     if (length(ok) < 3) return(NA_real_)
+    # rebuild weights for the OK subset (keeps Moran computation valid)
     nb_ok <- dnearneigh(coords_use[ok, , drop = FALSE], 0, 30000)
     nb_ok <- make.sym.nb(nb_ok)
     lw_ok <- nb2listw(nb_ok, style = "W", zero.policy = TRUE)
@@ -1304,6 +1151,7 @@ compute_moran_one_boot <- function(sp, boot_id) {
       error = function(e) NA_real_
     ))
   } else {
+    # use precomputed weights on full eval set
     v <- var(resids, na.rm = TRUE)
     if (is.na(v) || v == 0) return(NA_real_)
     return(tryCatch(
@@ -1322,7 +1170,7 @@ for (sp in species_list) {
   cat("\n=== Moran's I across bootstraps — ", sp, " ===\n")
   
   moran_vals <- foreach(i = seq_len(n_boot), .combine = c,
-                        .packages = c("sp", "spdep", "dplyr", "gbm", "dismo", "tidyr", "QPAD")) %dopar% {
+                        .packages = c("sp", "spdep", "dplyr", "gbm", "dismo", "tidyr")) %dopar% {
                           compute_moran_one_boot(sp, i)
                         }
   
@@ -1350,6 +1198,7 @@ for (sp in species_list) {
   )
   
   print(moran_boot_summary[[sp]]$summary)
+  # save per-species vectors
   saveRDS(moran_vals, file = file.path("Output/Tabular Data",
                                        paste0("moran_bootstrap_vals_", sp, ".rds")))
 }
@@ -1369,4 +1218,90 @@ if (isTRUE(stop_after)) {
 }
 
 cat("\n✅ Moran's I across bootstraps computed and saved.\n")
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# === FULL PDPs FOR ALL VARIABLES USED IN FINAL MODELS ===
+
+
+# Load saved model objects
+results_list <- readRDS("Output/Tabular Data/results_list_final_parallel_poisson.rds")
+final_model_list <- readRDS("Output/Tabular Data/final_model_list_parallel_poisson.rds")
+
+# Define nuisance variables to exclude
+nuisance_vars <- c("x_AEP10TM", "y_AEP10TM", "year")
+
+# Loop through each species
+for (sp in names(final_model_list)) {
+  cat("\n=== PDPs for", sp, "===\n")
+  
+  model <- final_model_list[[sp]]
+  var_importance <- results_list[[sp]]
+  
+  # Get all predictor names used in the final model (excluding nuisance)
+  valid_vars <- model$gbm.call$predictor.names
+  valid_vars <- valid_vars[!valid_vars %in% nuisance_vars]
+  
+  for (var in valid_vars) {
+    # Safely generate PDP
+    pd <- try(gbm::plot.gbm(model, i.var = var, return.grid = TRUE), silent = TRUE)
+    
+    if (inherits(pd, "try-error") || !("y" %in% names(pd)) || all(is.na(pd$y))) {
+      message("Skipping variable: ", var, " (could not generate valid PDP)")
+      next
+    }
+    
+    # === Back-transform from log scale ===
+    pd$expected_count <- exp(pd$y)
+    
+    # === Clean and center/scale ===
+    pd <- pd %>%
+      filter(is.finite(expected_count)) %>%
+      mutate(expected_scaled = as.numeric(scale(expected_count))) %>%
+      filter(!is.na(expected_scaled))
+    
+    # Extract relative contribution from variable importance
+    contrib <- var_importance %>%
+      filter(Feature == var) %>%
+      pull(MeanGain) %>%
+      round(1)
+    
+    title_text <- paste0(sp, " - ", var, " (", contrib, "% RI)")
+    
+    # Plot
+    p <- ggplot(pd, aes_string(x = var, y = "expected_scaled")) +
+      geom_line(color = "black", linewidth = 1) +
+      geom_hline(yintercept = 0, linetype = "dashed", color = "red") +
+      labs(
+        title = title_text,
+        x = var,
+        y = "Centered & Scaled Expected Count"
+      ) +
+      theme_minimal(base_size = 14) +
+      theme(
+        panel.grid = element_blank(),
+        plot.title = element_text(face = "bold", hjust = 0.5),
+        axis.title = element_text(size = 14),
+        axis.text = element_text(size = 12)
+      )
+    
+    print(p)
+  }
+}
+
 
