@@ -10,9 +10,11 @@
 rm(list = ls())
 
 # Load libraries
+library(dplyr)
 library(sf)
 library(terra)
 library(landscapemetrics)
+library(readr)
 
 
 # Define township center coordinates (change as needed)
@@ -135,19 +137,25 @@ plot(segregated_raster, col = bw_palette, legend = FALSE, axes = FALSE, main = "
 
 par(old_par)
 
-# --- Save clean PNG plots ---
 
-png("Figures/Synthetic landscapes/intimate_mixedwood_10m.png", width = 800, height = 800, res = 100)
+# --- Save clean TIFF plots ---
+
+tiff("Output/Figures/Synthetic landscapes/intimate_mixedwood_10m.tiff",
+     width = 800, height = 800, res = 600)
+
 par(mar = c(0, 0, 0, 0))
 plot(intimate_raster, col = bw_palette, legend = FALSE, axes = FALSE, main = "", box = FALSE)
 dev.off()
 
-png("Figures/Synthetic landscapes/segregated_mixedwood_10m.png", width = 800, height = 800, res = 100)
+tiff("Output/Figures/Synthetic landscapes/segregated_mixedwood_10m.tiff",
+     width = 800, height = 800, res = 600)
+
 par(mar = c(0, 0, 0, 0))
 plot(segregated_raster, col = bw_palette, legend = FALSE, axes = FALSE, main = "", box = FALSE)
 dev.off()
 
-par(old_par)
+
+
 
 # Calculate CLUMPY
 intimate_clumpy <- lsm_c_clumpy(intimate_raster)
@@ -160,9 +168,6 @@ print(segregated_clumpy)
 dir.create("Output/Spatial Data/Simulated landscapes", recursive = TRUE, showWarnings = FALSE)
 writeRaster(intimate_raster, filename = "Output/Spatial Data/Simulated landscapes/intimate_mixedwood_5m.tif", overwrite = TRUE)
 writeRaster(segregated_raster, filename = "Output/Spatial Data/Simulated landscapes/segregated_mixedwood_5m.tif", overwrite = TRUE)
-
-
-
 
 
 
@@ -217,8 +222,6 @@ sf::st_write(points_sf, "Output/Spatial Data/Simulated landscapes/point_grid_2km
 # =========================
 # Overlay points on rasters
 # =========================
-library(terra)
-library(sf)
 
 # Convert to terra vector for fast plotting
 points_vect <- terra::vect(points_sf)
@@ -260,12 +263,6 @@ dev.off()
 
 
 ############# Proportion conifer (mean) and CLUMPY at each point & extent
-
-library(terra)
-library(sf)
-library(dplyr)
-library(landscapemetrics)
-library(readr)
 
 # points_sf must already exist (your 2-km grid inset 1 km)
 
@@ -400,12 +397,14 @@ ncol <- nrow <- township_size / cell_size
 # Matrix to SpatRaster
 matrix_to_raster <- function(mat, crs_string, center_x, center_y, total_size) {
   half_total_size <- total_size / 2
-  rast_obj <- rast(nrows = nrow(mat), ncols = ncol(mat),
-                   xmin = center_x - half_total_size,
-                   xmax = center_x + half_total_size,
-                   ymin = center_y - half_total_size,
-                   ymax = center_y + half_total_size,
-                   crs = crs_string)
+  rast_obj <- rast(
+    nrows = nrow(mat), ncols = ncol(mat),
+    xmin = center_x - half_total_size,
+    xmax = center_x + half_total_size,
+    ymin = center_y - half_total_size,
+    ymax = center_y + half_total_size,
+    crs = crs_string
+  )
   values(rast_obj) <- as.vector(t(mat))
   return(rast_obj)
 }
@@ -441,6 +440,7 @@ generate_segregated <- function() {
   full_mat <- matrix(0, nrow = nrow, ncol = ncol)
   block_size_pixels <- 500 / cell_size
   blocks_per_side <- ceiling(nrow / block_size_pixels)
+  
   for (i in 0:(blocks_per_side - 1)) {
     for (j in 0:(blocks_per_side - 1)) {
       block <- generate_half_half_block(block_size_pixels)
@@ -472,27 +472,74 @@ crop_extent <- ext(xmin_crop, xmax_crop, ymin_crop, ymax_crop)
 intimate_crop <- crop(intimate_raster, crop_extent)
 segregated_crop <- crop(segregated_raster, crop_extent)
 
-# Grid overlay function (500 m × 500 m)
-make_grid <- function(r) {
-  grid_size <- 500
-  bbox <- st_as_sfc(st_bbox(r))
-  st_make_grid(bbox, cellsize = grid_size, square = TRUE) |> st_as_sf()
+# ---------------------------------------
+# Create 500 m grid from cropped raster extent
+# ---------------------------------------
+make_grid <- function(r, cellsize = 500, crs_string = "EPSG:3400") {
+  e <- ext(r)
+  
+  bbox_poly <- st_as_sfc(
+    st_bbox(
+      c(
+        xmin = xmin(r),
+        ymin = ymin(r),
+        xmax = xmax(r),
+        ymax = ymax(r)
+      ),
+      crs = st_crs(crs_string)
+    )
+  )
+  
+  g <- st_make_grid(
+    bbox_poly,
+    cellsize = cellsize,
+    square = TRUE,
+    what = "polygons"
+  )
+  
+  st_sf(geometry = g)
 }
-grid_overlay <- make_grid(intimate_crop)
 
-# Save PNGs 
+grid_overlay <- make_grid(intimate_crop, cellsize = 500)
+
+# ---------------------------------------
+# Save TIFFs WITH grid
+# ---------------------------------------
+dir.create("Output/Figures/Synthetic landscapes", recursive = TRUE, showWarnings = FALSE)
+
 bw_palette <- c("white", "black")
 
-png("Figures/Synthetic landscapes/intimate_block_2.5km.png", width = 800, height = 800, res = 100)
+tiff("Output/Figures/Synthetic landscapes/intimate_block_2.5km_grid.tiff",
+     width = 800, height = 800, res = 600, compression = "lzw")
+
 par(mar = c(0, 0, 0, 0))
-plot(intimate_crop, col = bw_palette, legend = FALSE, axes = FALSE, main = "")
-plot(grid_overlay$geometry, add = TRUE, border = "gray30", lwd = 0.5)
+plot(intimate_crop, col = bw_palette, legend = FALSE, axes = FALSE, main = "", box = FALSE)
+plot(st_geometry(grid_overlay), add = TRUE, border = "black", lwd = 1)
 dev.off()
 
-png("Figures/Synthetic landscapes/segregated_block_2.5km.png", width = 800, height = 800, res = 100)
+tiff("Output/Figures/Synthetic landscapes/segregated_block_2.5km_grid.tiff",
+     width = 800, height = 800, res = 600, compression = "lzw")
+
 par(mar = c(0, 0, 0, 0))
-plot(segregated_crop, col = bw_palette, legend = FALSE, axes = FALSE, main = "")
-plot(grid_overlay$geometry, add = TRUE, border = "gray30", lwd = 0.5)
+plot(segregated_crop, col = bw_palette, legend = FALSE, axes = FALSE, main = "", box = FALSE)
+plot(st_geometry(grid_overlay), add = TRUE, border = "black", lwd = 1)
+dev.off()
+
+# ---------------------------------------
+# Optional: also save cropped rasters without grid
+# ---------------------------------------
+tiff("Output/Figures/Synthetic landscapes/intimate_block_2.5km.tiff",
+     width = 800, height = 800, res = 600, compression = "lzw")
+
+par(mar = c(0, 0, 0, 0))
+plot(intimate_crop, col = bw_palette, legend = FALSE, axes = FALSE, main = "", box = FALSE)
+dev.off()
+
+tiff("Output/Figures/Synthetic landscapes/segregated_block_2.5km.tiff",
+     width = 800, height = 800, res = 600, compression = "lzw")
+
+par(mar = c(0, 0, 0, 0))
+plot(segregated_crop, col = bw_palette, legend = FALSE, axes = FALSE, main = "", box = FALSE)
 dev.off()
 
 # Save cropped rasters
@@ -512,106 +559,62 @@ print(lsm_c_clumpy(segregated_crop))
 
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 ################# Add 500 m x 500 m grid overlay for figure
 
-# Define 500 m grid size
-grid_spacing <- 500
-
-# Create a 500 m grid across the township polygon
+# ---------------------------------------
+# Create 500 m x 500 m grid for township
+# ---------------------------------------
 grid_500m <- st_make_grid(
   township_sf,
-  cellsize = c(grid_spacing, grid_spacing),
+  cellsize = 500,
   what = "polygons",
   square = TRUE
 )
 
-# Convert to sf object
 grid_500m_sf <- st_sf(geometry = grid_500m)
 
-# Ensure CRS matches township
-st_crs(grid_500m_sf) <- st_crs(township_sf)
+# Clip grid to township boundary
+grid_500m_sf <- st_intersection(grid_500m_sf, township_sf)
 
-# Save to shapefile
-st_write(grid_500m_sf, "Output/Spatial Data/Township polygon/township_grid_500m.shp", delete_layer = TRUE)
-# --- START: Interactive Plotting (No labels or axes) ---
-old_par <- par(no.readonly = TRUE) # Save current par settings
+# Save grid shapefile
+dir.create("Output/Spatial Data/Township polygon", recursive = TRUE, showWarnings = FALSE)
+st_write(
+  grid_500m_sf,
+  "Output/Spatial Data/Township polygon/township_grid_500m.shp",
+  delete_layer = TRUE
+)
 
-# Set minimal plot margins for no axes/labels
-par(mar = c(0.5, 0.5, 0.5, 0.5))
+# ---------------------------------------
+# On-screen plot with grid overlay
+# ---------------------------------------
+old_par <- par(no.readonly = TRUE)
+par(mar = c(0, 0, 0, 0))
 
-# Plot Intimate Mixedwood
-plot(intimate_raster, main = "", col = bw_palette, legend = FALSE,
-     axes = FALSE) # Turn off default axes and title
-plot(grid_500m_sf, add = TRUE, border = "black", lwd = 3) # Add the 500m grid
+plot(intimate_raster, col = bw_palette, legend = FALSE, axes = FALSE, main = "", box = FALSE)
+plot(st_geometry(grid_500m_sf), add = TRUE, border = "black", lwd = 2)
 
-# Plot Segregated Mixedwood
-plot(segregated_raster, main = "", col = bw_palette, legend = FALSE,
-     axes = FALSE) # Turn off default axes and title
-plot(grid_500m_sf, add = TRUE, border = "black", lwd = 3) # Add the 500m grid
+plot(segregated_raster, col = bw_palette, legend = FALSE, axes = FALSE, main = "", box = FALSE)
+plot(st_geometry(grid_500m_sf), add = TRUE, border = "black", lwd = 2)
 
-# Restore original par settings
 par(old_par)
-# --- END: Interactive Plotting ---
 
+# ---------------------------------------
+# Save clean TIFF plots WITH grid overlay
+# ---------------------------------------
+dir.create("Output/Figures/Synthetic landscapes", recursive = TRUE, showWarnings = FALSE)
 
-# Calculate CLUMPY
-intimate_clumpy <- lsm_c_clumpy(intimate_raster)
-segregated_clumpy <- lsm_c_clumpy(segregated_raster)
+tiff("Output/Figures/Synthetic landscapes/intimate_mixedwood_5m_grid.tiff",
+     width = 800, height = 800, res = 600, compression = "lzw")
 
-print(intimate_clumpy)
-print(segregated_clumpy)
-
-# Create output directory for TIFF files if it doesn't exist
-if (!dir.exists("Output/Spatial Data/Simulated landscapes")) {
-  dir.create("Output/Spatial Data/Simulated landscapes", recursive = TRUE)
-}
-
-#Save as TIFF
-intimate_path <- "Output/Spatial Data/Simulated landscapes/intimate_mixedwood_10m.tif"
-segregated_path <- "Output/Spatial Data/Simulated landscapes/segregated_mixedwood_10m.tif"
-writeRaster(intimate_raster, filename = intimate_path, overwrite = TRUE)
-writeRaster(segregated_raster, filename = segregated_path, overwrite = TRUE)
-
-# --- START: Saving Plots as PNG (No labels or axes) ---
-
-# Create output directory for plots if it doesn't exist
-if (!dir.exists("Output/Plots")) {
-  dir.create("Output/Plots", recursive = TRUE)
-}
-
-# Save Intimate Mixedwood plot as PNG
-png("Figures/Synthetic landscapes/intimate_mixedwood_10m_grid.png", width = 800, height = 800, res = 100)
-par(mar = c(0.5, 0.5, 0.5, 0.5)) # Apply minimal margins for PNG as well
-plot(intimate_raster, main = "", col = bw_palette, legend = FALSE,
-     axes = FALSE) # Turn off default axes and title
-plot(grid_500m_sf, add = TRUE, border = "black", lwd = 3) # Add the 500m grid
+par(mar = c(0, 0, 0, 0))
+plot(intimate_raster, col = bw_palette, legend = FALSE, axes = FALSE, main = "", box = FALSE)
+plot(st_geometry(grid_500m_sf), add = TRUE, border = "black", lwd = 2)
 dev.off()
 
-# Save Segregated Mixedwood plot as PNG
-png("Figures/Synthetic landscapes/segregated_mixedwood_10m_grid.png", width = 800, height = 800, res = 100)
-par(mar = c(0.5, 0.5, 0.5, 0.5)) # Apply minimal margins for PNG as well
-plot(segregated_raster, main = "", col = bw_palette, legend = FALSE,
-     axes = FALSE) # Turn off default axes and title
-plot(grid_500m_sf, add = TRUE, border = "black", lwd = 3) # Add the 500m grid
+tiff("Output/Figures/Synthetic landscapes/segregated_mixedwood_5m_grid.tiff",
+     width = 800, height = 800, res = 600, compression = "lzw")
+
+par(mar = c(0, 0, 0, 0))
+plot(segregated_raster, col = bw_palette, legend = FALSE, axes = FALSE, main = "", box = FALSE)
+plot(st_geometry(grid_500m_sf), add = TRUE, border = "black", lwd = 2)
 dev.off()
-
-# Restore original par settings after all plotting and saving operations (important for R session)
-par(old_par)
-# --- END: Saving Plots as PNG ---
-

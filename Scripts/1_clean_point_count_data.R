@@ -1,13 +1,12 @@
 # ---
 # title: "Clean bird data"
-# author: "Brendan Casey and Leonard Patterson"
+# author: "Elly Knight, Brendan Casey, and Leonard Patterson"
 # created: "2025-04-11"
 # description: "Code to clean data brought in from wildtrax. 
 # Adapted some of the script contained in https://github.com/
 # borealbirds/QPADestimation/blob/main/script/02.CleanData.R"
 # ---
 
-#Setup ----
 
 ##Load packages----
 library(tidyverse)
@@ -28,13 +27,10 @@ load("Output/R Data/wildtrax_raw_pc_2025-01-18.rData")
 # NOTE: Edit the 'loginexample.R' script to include your WildTrax 
 # login details and rename to 'login.R'. 
 # DO NOT PUSH YOUR LOGIN TO GITHUB
-#config <- "1_code/r_scripts/login.R"
-#source(config)
-#wt_auth()
-
 
 # Authenticate with WildTrax using environment variables for credentials
-Sys.setenv(WT_USERNAME = "ljpatter", WT_PASSWORD = "Kingedwardpark13")
+config <- "Scripts/login.R"
+source(config)
 wt_auth()
 
 ##////////////////////////////////////////////////////////////////
@@ -344,12 +340,3 @@ wildtrax_cleaned<-w17%>%
 
 # Save
 save(wildtrax_cleaned, file=paste0("Output/R Data/wildtrax_cleaned_", Sys.Date(), ".rData"))
-
-
-# Clear environment
-rm(list = ls())  # Removes all objects from the environment
-
-
-
-
-

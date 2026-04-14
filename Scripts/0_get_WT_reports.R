@@ -6,8 +6,6 @@
 # data into a single dataframe
 # ---
 
-
-
 ##Load packages----
 # install.packages("remotes")
 #remotes::install_github("ABbiodiversity/wildRtrax")
@@ -20,7 +18,8 @@ library(purrr)
 library(tibble)
 
 # Authenticate with WildTrax using environment variables for credentials
-Sys.setenv(WT_USERNAME = "ljpatter", WT_PASSWORD = "Kingedwardpark13")
+config <- "Scripts/login.R"
+source(config)
 wt_auth()
 
 # Initialize a vector to store project IDs that cause errors
@@ -77,14 +76,6 @@ if (length(error_projects) > 0) {
 
 
 
-
-
-
-
-
-
-
-
 ###PC only---
 
 my_report_pc <- wt_get_download_summary(sensor_id = "PC") %>%
@@ -114,10 +105,3 @@ save(wildtrax_raw_pc, file=paste0("Output/R Data/wildtrax_raw_pc_", Sys.Date(), 
 
 wildtrax_raw_aru<-my_report_aru
 save(wildtrax_raw_aru, file=paste0("Output/R Data/wildtrax_raw_aru_", Sys.Date(), ".rData"))
-
-
-
-
-
-
-

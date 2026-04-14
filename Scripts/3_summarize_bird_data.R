@@ -1,8 +1,8 @@
 # ---
-# title: "Calculate taxonomic diversity"
+# title: "Summarize bird data"
 # author: "Brendan Casey"
 # created: "2024-01-13"
-# description: "Calculate taxonomic diversity from WildTrax detection data."
+# description: "Summarize bird data from WildTrax."
 # ---
 
 ## Load packages ----
@@ -12,7 +12,8 @@ library(dplyr)
 library(wildrtrax) # for species table
 
 # Authenticate with WildTrax using environment variables for credentials
-Sys.setenv(WT_USERNAME = "ljpatter", WT_PASSWORD = "Kingedwardpark13")
+config <- "Scripts/login.R"
+source(config)
 wt_auth()
 
 ## Import data ----

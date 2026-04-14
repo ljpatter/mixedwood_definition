@@ -7,6 +7,9 @@
 
 # === FINAL MULTISCALE BRT MODEL USING ONLY SCALE-OF-EFFECT PREDICTORS (BLOCK-BOOT + BLOCK-CV) ===
 
+# --- CLEAN ENV ---
+rm(list = ls())
+
 # --- LIBRARIES ---
 library(cowplot)
 library(sf)
@@ -31,9 +34,9 @@ library(tibble)
 library(terra)
 library(landscapemetrics)
 library(patchwork)
+library(dplyr)
+library(gbm)
 
-# --- CLEAN ENV ---
-rm(list = ls())
 
 # --- Load variable importance (used to pick scale-of-effect predictors) ---
 imp_df <- readRDS("Output/Tabular Data/imp_df_final_parallel_poisson_5m.rds") %>%
@@ -93,7 +96,7 @@ registerDoParallel(cl)
 registerDoRNG(123)  # reproducible parallel RNG
 
 # --- QPAD Offsets ---
-load_BAM_QPAD(version = 2)
+load_BAM_QPAD(version = 3)
 calculate_offsets <- function(data, species_code) {
   localBAMcorrections(
     species = species_code,
@@ -201,7 +204,7 @@ for (sp in species_list) {
   boot_model_list[[sp]] <- lapply(boot_models, `[[`, "model")
   boot_model_data[[sp]] <- lapply(boot_models, `[[`, "data")
   
-  cat(sprintf("✅ %d successful bootstraps for %s\n", length(boot_models), sp))
+  cat(sprintf("%d successful bootstraps for %s\n", length(boot_models), sp))
 }
 
 # --- Stop cluster ---
@@ -210,7 +213,7 @@ stopCluster(cl)
 # --- Save outputs ---
 saveRDS(boot_model_list, "Output/Tabular Data/bootstrapped_multiscale_model_list_5m.rds")
 saveRDS(boot_model_data, "Output/Tabular Data/bootstrapped_multiscale_data_list_5m.rds")
-cat("\n✅ Saved all bootstrapped multiscale models (scale-of-effect predictors + true block bootstrap + blocked CV).\n")
+cat("\n Saved all bootstrapped multiscale models (scale-of-effect predictors + true block bootstrap + blocked CV).\n")
 
 
 
@@ -228,12 +231,6 @@ cat("\n✅ Saved all bootstrapped multiscale models (scale-of-effect predictors 
 boot_model_list <- readRDS("Output/Tabular Data/bootstrapped_multiscale_model_list_5m.rds")
 
 # === Extract variable importance from each model ===
-library(dplyr)
-library(purrr)
-library(stringr)
-library(tibble)
-library(gbm)
-
 imp_df <- lapply(names(boot_model_list), function(sp) {
   bind_rows(lapply(boot_model_list[[sp]], function(mod) {
     data.frame(
@@ -279,7 +276,6 @@ top_vars_per_species <- best_by_type %>%
 
 
 ################### Run final model 
-
 
 # === Define offset function ===
 calculate_offsets <- function(data, species_code) {
@@ -356,19 +352,7 @@ saveRDS(top_vars_per_species, "Output/Tabular Data/top_vars_per_species.rds")
 
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-################ CREATE PDPs for SOE BOOTSTRAPPED MODEL
+################ PDPs for SOE  MODEL
 
 suppressPackageStartupMessages({
   library(dplyr); library(purrr); library(tidyr)
@@ -380,8 +364,8 @@ suppressPackageStartupMessages({
 # Paths & output locations
 # -----------------------------
 boot_path    <- "Output/Tabular Data/bootstrapped_multiscale_model_list_5m.rds"
-out_tab_dir  <- "Output/Tables/GAM_PDP_SoE_boot"
-out_fig_dir  <- "Output/Figures/GAM_PDP_SoE_boot"
+out_tab_dir  <- "Output/Tables/GAM_PDP_SoE"
+out_fig_dir  <- "Output/Figures/GAM_PDP_SoE"
 dir.create(out_tab_dir, recursive = TRUE, showWarnings = FALSE)
 dir.create(out_fig_dir, recursive = TRUE, showWarnings = FALSE)
 
@@ -583,8 +567,4 @@ for (sp in names(boot_model_list)) {
 }
 
 invisible(all_outputs)
-
-
-
-
 
